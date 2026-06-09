@@ -47,11 +47,12 @@ models:
       material:
         type: string
         default: wpc
-        enum: [wpc, larch]
+        enum: [wpc, larch, tile]
         title: Materiál povrchu
         x-options:
           wpc:   { label: 'WPC kompozit — bezúdržbový (857 Kč/m²)' }
           larch: { label: 'Sibiřský modřín — přírodní dřevo (649 Kč/m²)' }
+          tile:  { label: 'Betonová dlažba 60×60 — na terče (690 Kč/m²)' }
       boardColor:
         type: string
         default: antracit
@@ -276,38 +277,38 @@ lifecycle:
     body: |
       var pid = this.project.id;
 
-      // --- Ceník (idempotentní dle existence řádků ceníku) ----------------
+      // --- Ceník (idempotentní po jednotlivých SKU — doplní jen chybějící)
       var catRows = this.models.terrace_catalog.all.value;
-      var hasCatalog = false;
+      var existingSku = {};
       for (var i = 0; i < catRows.length; i++) {
-        if (catRows[i].project_id === pid) { hasCatalog = true; break; }
+        if (catRows[i].project_id === pid) existingSku[catRows[i].sku] = true;
       }
-      if (!hasCatalog) {
-        var save = this.models.terrace_catalog.save;
-        var row = function (sku, category, name, unit, unitPrice) {
-          save({ sku: sku, category: category, name: name, unit: unit,
-                 unitPrice: unitPrice, project_id: pid });
-        };
-        // -- Povrchové desky (cena za m²) ----------------------------------
-        row('DECK-WPC-ANTRACIT', 'Povrch', 'WPC terasové prkno 140×25 mm — antracit', 'm²', 857);
-        row('DECK-WPC-HNEDA',    'Povrch', 'WPC terasové prkno 140×25 mm — hnědá',    'm²', 857);
-        row('DECK-WPC-SEDA',     'Povrch', 'WPC terasové prkno 140×25 mm — šedá',     'm²', 857);
-        row('DECK-LARCH',        'Povrch', 'Sibiřský modřín terasové prkno 140×27 mm','m²', 649);
-        // -- Podkonstrukce — nosníky (4 m kus) -----------------------------
-        row('SUB-ALU-4M',  'Podkonstrukce', 'Hliníkový nosník 40×60×4000 mm', 'ks', 329);
-        row('SUB-WPC-4M',  'Podkonstrukce', 'WPC podkladní hranol 40×60×4000 mm', 'ks', 189);
-        row('SUB-WOOD-4M', 'Podkonstrukce', 'Dřevěný hranol modřín 45×70×4000 mm', 'ks', 145);
-        // -- Podkonstrukce — terče / podložky ------------------------------
-        row('PED-ADJ', 'Podkonstrukce', 'Rektifikační terč nastavitelný 40–60 mm', 'ks', 42);
-        // -- Spojovací materiál --------------------------------------------
-        row('FAST-CLIP-100',  'Spojovací materiál', 'Nerez montážní spona pro WPC (bal. 100 ks)', 'bal', 480);
-        row('FAST-SCREW-250', 'Spojovací materiál', 'Nerez terasový vrut pro dřevo (bal. 250 ks)', 'bal', 320);
-        // -- Lišty ----------------------------------------------------------
-        row('TRIM-WPC',  'Lišty', 'WPC ukončovací L-lišta', 'bm', 185);
-        row('TRIM-WOOD', 'Lišty', 'Modřínová krycí lišta', 'bm', 95);
-        // -- Služby ---------------------------------------------------------
-        row('SRV-INSTALL', 'Služby', 'Montáž terasy vč. podkonstrukce', 'm²', 450);
-      }
+      var save = this.models.terrace_catalog.save;
+      var row = function (sku, category, name, unit, unitPrice) {
+        if (existingSku[sku]) return;
+        save({ sku: sku, category: category, name: name, unit: unit,
+               unitPrice: unitPrice, project_id: pid });
+      };
+      // -- Povrchové desky (cena za m²) ------------------------------------
+      row('DECK-WPC-ANTRACIT', 'Povrch', 'WPC terasové prkno 140×25 mm — antracit', 'm²', 857);
+      row('DECK-WPC-HNEDA',    'Povrch', 'WPC terasové prkno 140×25 mm — hnědá',    'm²', 857);
+      row('DECK-WPC-SEDA',     'Povrch', 'WPC terasové prkno 140×25 mm — šedá',     'm²', 857);
+      row('DECK-LARCH',        'Povrch', 'Sibiřský modřín terasové prkno 140×27 mm','m²', 649);
+      row('DECK-TILE-GREY',    'Povrch', 'Betonová terasová dlažba 60×60 cm — šedá', 'm²', 690);
+      // -- Podkonstrukce — nosníky (4 m kus) -------------------------------
+      row('SUB-ALU-4M',  'Podkonstrukce', 'Hliníkový nosník 40×60×4000 mm', 'ks', 329);
+      row('SUB-WPC-4M',  'Podkonstrukce', 'WPC podkladní hranol 40×60×4000 mm', 'ks', 189);
+      row('SUB-WOOD-4M', 'Podkonstrukce', 'Dřevěný hranol modřín 45×70×4000 mm', 'ks', 145);
+      // -- Podkonstrukce — terče / podložky --------------------------------
+      row('PED-ADJ', 'Podkonstrukce', 'Rektifikační terč nastavitelný 40–60 mm', 'ks', 42);
+      // -- Spojovací materiál ----------------------------------------------
+      row('FAST-CLIP-100',  'Spojovací materiál', 'Nerez montážní spona pro WPC (bal. 100 ks)', 'bal', 480);
+      row('FAST-SCREW-250', 'Spojovací materiál', 'Nerez terasový vrut pro dřevo (bal. 250 ks)', 'bal', 320);
+      // -- Lišty ------------------------------------------------------------
+      row('TRIM-WPC',  'Lišty', 'WPC ukončovací L-lišta', 'bm', 185);
+      row('TRIM-WOOD', 'Lišty', 'Modřínová krycí lišta', 'bm', 95);
+      // -- Služby -----------------------------------------------------------
+      row('SRV-INSTALL', 'Služby', 'Montáž terasy vč. podkonstrukce', 'm²', 450);
 
       // --- Ukázková data (idempotentní dle existence varianty) ------------
       // Navázáno na geometrii nasazenou přes estoflow_seed_geometry.
@@ -330,6 +331,21 @@ lifecycle:
           material: 'wpc', boardColor: 'antracit', layingDirection: 'podel',
           substructureType: 'alu', joistSpacing: 500, installHeight: 10,
           substructureBase: 'concrete', edgeTrim: true,
+          includeInstallation: false, tcoYears: 10
+        });
+      }
+
+      // --- Druhá ukázková varianta: dlažba (idempotentní dle materiálu) ----
+      var hasTile = false;
+      for (var t = 0; t < cfgRows.length; t++) {
+        if (cfgRows[t].project_id === pid && cfgRows[t].material === 'tile') { hasTile = true; break; }
+      }
+      if (!hasTile) {
+        this.models.TerraceConfig.save({
+          project_id: pid, name: 'Varianta B — betonová dlažba',
+          material: 'tile', boardColor: 'antracit', layingDirection: 'podel',
+          substructureType: 'alu', joistSpacing: 500, installHeight: 10,
+          substructureBase: 'concrete', edgeTrim: false,
           includeInstallation: false, tcoYears: 10
         });
       }
@@ -395,6 +411,7 @@ computations:
   deckBoardSku:
     params: [material, boardColor]
     body: |
+      if (material === 'tile') return 'DECK-TILE-GREY';
       if (material === 'larch') return 'DECK-LARCH';
       if (boardColor === 'hneda') return 'DECK-WPC-HNEDA';
       if (boardColor === 'seda') return 'DECK-WPC-SEDA';
@@ -407,6 +424,67 @@ computations:
       if (substructureType === 'wpc') return 'SUB-WPC-4M';
       if (substructureType === 'wood') return 'SUB-WOOD-4M';
       return 'SUB-ALU-4M';
+
+  # Vizualizace povrchu — čáry prken / mřížka dlažby pro vykreslení do plochy.
+  # Materiál a směr pokládky se čtou z první varianty projektu. Čáry se generují
+  # přes obálku plochy a v šabloně se ořežou clipPath na skutečný tvar.
+  surfaceLines:
+    params: [geo, models, surface]
+    body: |
+      var ids = (surface && surface.regionGeometryIds) || [];
+      var minX = null, minY = null, maxX = null, maxY = null;
+      function ext(x, y) {
+        if (minX === null || x < minX) minX = x;
+        if (maxX === null || x > maxX) maxX = x;
+        if (minY === null || y < minY) minY = y;
+        if (maxY === null || y > maxY) maxY = y;
+      }
+      for (var i = 0; i < ids.length; i++) {
+        var g = geo(ids[i]);
+        if (!g) continue;
+        if (g.type === 'rect') { ext(g.x, g.y); ext(g.x + g.width, g.y + g.height); }
+        else if (g.type === 'polygon' && g.points) {
+          for (var p = 0; p < g.points.length; p++) ext(g.points[p].x, g.points[p].y);
+        }
+      }
+      var pid = surface ? surface.project_id : null;
+      var cfgs = (models.TerraceConfig || []).filter(function (c) { return c.project_id === pid; });
+      var c = cfgs[0] || null;
+      var material = c ? c.material : 'wpc';
+      var dir = c ? c.layingDirection : 'podel';
+      var isTile = (material === 'tile');
+      var out = {
+        fill:   isTile ? 'rgba(150,160,166,0.18)' : 'rgba(184,118,62,0.20)',
+        stroke: isTile ? '#6b7280' : '#8a5a2b',
+        color:  isTile ? '#6b7280' : '#8a5a2b',
+        sw:     isTile ? 1.2 : 1,
+        lines:  [],
+        holes:  []
+      };
+      // Výřezy (bazén apod.) — odečtou se z masky, aby přes ně vzor nešel.
+      var obs = (models.TerraceObstacle || []).filter(function (o) { return o.project_id === pid; });
+      for (var oi = 0; oi < obs.length; oi++) {
+        var og = geo(obs[oi].drivingGeometryId);
+        if (!og) continue;
+        if (og.type === 'rect') out.holes.push({ kind: 'rect', x: og.x, y: og.y, w: og.width, h: og.height });
+        else if (og.type === 'polygon' && og.svgPoints) out.holes.push({ kind: 'poly', pts: og.svgPoints });
+      }
+      if (minX === null) return out;
+      var w = maxX - minX, h = maxY - minY;
+      var pitch = isTile ? 600 : 145;            // dlaždice 60 cm; prkno 140 + mezera 5 mm
+      var lines = out.lines;
+      var cap = 600;
+      function vlines() { for (var x = minX + pitch; x < maxX - 1 && lines.length < cap; x += pitch) lines.push({ x1: x, y1: minY, x2: x, y2: maxY }); }
+      function hlines() { for (var y = minY + pitch; y < maxY - 1 && lines.length < cap; y += pitch) lines.push({ x1: minX, y1: y, x2: maxX, y2: y }); }
+      if (isTile) { vlines(); hlines(); }
+      else if (dir === 'napric') { vlines(); }
+      else if (dir === 'diagonal') {
+        var span = w + h;
+        for (var sx = minX - h; sx < maxX && lines.length < cap; sx += pitch) {
+          lines.push({ x1: sx, y1: minY, x2: sx + span, y2: minY + span });
+        }
+      } else { hlines(); }
+      return out;
 
   # Měřené plochy z modelů (rollup ze zakreslené geometrie) — fallback,
   # když x-measured pole ve formuláři ještě nejsou naseedovaná.
@@ -437,24 +515,57 @@ tools:
     dialogFields: [name, regionGeometryIds]
     template: |
       {% if geos | length > 0 %}
+      {% set viz = compute.surfaceLines(geo, models, m) %}
+      {% set maskId = 'surf-mask-' + m.id %}
       <g class="terrace-surface{{ ' temporary' if isTemporary else '' }}"
          {{ 'opacity="0.6"' if isTemporary else '' }}>
+        <defs>
+          <mask id="{{ maskId }}" maskContentUnits="userSpaceOnUse">
+            {# plocha = viditelný vzor (bílá) #}
+            {% for gg in geos %}
+            {% if gg.type == 'rect' %}
+            <rect x="{{ gg.x }}" y="{{ gg.y }}" width="{{ gg.width }}" height="{{ gg.height }}" fill="#ffffff" />
+            {% elif gg.type == 'polygon' and gg.svgPoints %}
+            <polygon points="{{ gg.svgPoints }}" fill="#ffffff" />
+            {% endif %}
+            {% endfor %}
+            {# výřezy = skrytý vzor (černá) #}
+            {% for ho in viz.holes %}
+            {% if ho.kind == 'rect' %}
+            <rect x="{{ ho.x }}" y="{{ ho.y }}" width="{{ ho.w }}" height="{{ ho.h }}" fill="#000000" />
+            {% elif ho.kind == 'poly' %}
+            <polygon points="{{ ho.pts }}" fill="#000000" />
+            {% endif %}
+            {% endfor %}
+          </mask>
+        </defs>
+
         {% for gg in geos %}
         {% if gg.type == 'rect' %}
         <rect x="{{ gg.x }}" y="{{ gg.y }}" width="{{ gg.width }}" height="{{ gg.height }}"
-              fill="rgba(184, 118, 62, 0.20)" stroke="#8a5a2b" stroke-width="2"
+              fill="{{ viz.fill }}" stroke="{{ viz.stroke }}" stroke-width="2"
               vector-effect="non-scaling-stroke" />
         {% elif gg.type == 'polygon' and gg.svgPoints %}
         <polygon points="{{ gg.svgPoints }}"
-                 fill="rgba(184, 118, 62, 0.20)" stroke="#8a5a2b" stroke-width="2"
+                 fill="{{ viz.fill }}" stroke="{{ viz.stroke }}" stroke-width="2"
                  vector-effect="non-scaling-stroke" />
         {% endif %}
         {% endfor %}
+
+        <g mask="url(#{{ maskId }})">
+          {% for ln in viz.lines %}
+          <line x1="{{ ln.x1 }}" y1="{{ ln.y1 }}" x2="{{ ln.x2 }}" y2="{{ ln.y2 }}"
+                stroke="{{ viz.color }}" stroke-width="{{ viz.sw }}"
+                vector-effect="non-scaling-stroke" opacity="0.55" />
+          {% endfor %}
+        </g>
+
         {% if envelope %}
         <text x="{{ envelope.x + envelope.width / 2 }}" y="{{ envelope.y + envelope.height / 2 }}"
               text-anchor="middle" dominant-baseline="central"
               font-family="-apple-system, BlinkMacSystemFont, sans-serif"
-              font-size="{{ pointsToMm(11) }}" fill="#6b3f17" font-weight="600"
+              font-size="{{ pointsToMm(11) }}" fill="#6b3f17" font-weight="700"
+              paint-order="stroke" stroke="#ffffff" stroke-width="{{ pointsToMm(2.5) }}"
               style="user-select: none">{{ m.name }} · {{ m.area | round(1) }} m²</text>
         {% endif %}
       </g>
@@ -518,7 +629,10 @@ calculators:
           label: Služby
           fields: [edgeTrim, includeInstallation, tcoYears]
       rules:
-        - { field: boardColor, showWhen: { material: wpc } }
+        - { field: boardColor,       showWhen: { material: wpc } }
+        - { field: substructureType, hideWhen: { material: tile } }
+        - { field: joistSpacing,     hideWhen: { material: tile } }
+        - { field: edgeTrim,         hideWhen: { material: tile } }
     outputs: [bom, takeoff, tco]
 
 # =============================================================================
@@ -539,25 +653,17 @@ aggregations:
       var perimA = (c.deckPerimeter || 0) > 0 ? c.deckPerimeter : meas.perim;
       var net = Math.max(0, grossA - holesA);
       var waste = compute.wasteFactor(c.layingDirection);
-      var deckArea = net * waste;
-      var boardCount = Math.ceil(deckArea / 0.56);   // krytí jednoho prkna 140×4000
+      var coverArea = net * waste;
+
+      var isTile = (c.material === 'tile');
+      var isWpc  = (c.material === 'wpc');
+      var unitCover = isTile ? 0.36 : 0.56;            // 60×60 dlaždice vs prkno 140×4000
+      var unitCount = Math.ceil(coverArea / unitCover);
+      var unitLabel = isTile ? 'Počet dlaždic' : 'Počet prken';
 
       var deck   = compute.catalogPrice(catalog, compute.deckBoardSku(c.material, c.boardColor));
-      var joist  = compute.catalogPrice(catalog, compute.joistSku(c.substructureType));
       var ped    = compute.catalogPrice(catalog, 'PED-ADJ');
-      var isWpc  = (c.material !== 'larch');
-      var fast   = compute.catalogPrice(catalog, isWpc ? 'FAST-CLIP-100' : 'FAST-SCREW-250');
-      var trim   = compute.catalogPrice(catalog, isWpc ? 'TRIM-WPC' : 'TRIM-WOOD');
       var instal = compute.catalogPrice(catalog, 'SRV-INSTALL');
-
-      var spacingM   = (c.joistSpacing || 500) / 1000;
-      var joistLm    = spacingM > 0 ? net / spacingM : 0;          // bm nosníků
-      var joistPcs   = Math.ceil(joistLm / 4.0);
-      var pedCount   = Math.ceil(net * 2.5);                       // ~2,5 terče/m²
-      var fastPacks  = isWpc ? Math.ceil(net * 20 / 100)           // ~20 spon/m²
-                             : Math.ceil(net * 25 / 250);          // ~25 vrutů/m²
-      var trimLen    = c.edgeTrim ? Math.ceil(perimA) : 0;
-      var installQty = c.includeInstallation ? net : 0;
 
       var total = 0;
       function line(item, qty, unit, unitPrice) {
@@ -565,26 +671,46 @@ aggregations:
         total += price;
         return { item: item, qty: qty, unit: unit, price: price };
       }
-
-      var povrch = [ line(deck.name, Math.round(deckArea * 10) / 10, 'm²', deck.unitPrice) ];
-      var subRows = [
-        line(joist.name, joistPcs, 'ks', joist.unitPrice),
-        line(ped.name, pedCount, 'ks', ped.unitPrice)
-      ];
-      var fastRows = [ line(fast.name, fastPacks, 'bal', fast.unitPrice) ];
-      var trimRows = [];
-      if (trimLen > 0) trimRows.push(line(trim.name, trimLen, 'bm', trim.unitPrice));
-      var srvRows = [];
-      if (installQty > 0) srvRows.push(line(instal.name, Math.round(installQty * 10) / 10, 'm²', instal.unitPrice));
-
       function sum(rows) { var s = 0; for (var i = 0; i < rows.length; i++) s += rows[i].price; return s; }
+
+      var povrch = [ line(deck.name, Math.round(coverArea * 10) / 10, 'm²', deck.unitPrice) ];
       var groups = [
-        { label: 'Povrch', rows: povrch, subtotal: { label: 'Povrch', value: sum(povrch), format: 'currency' } },
-        { label: 'Podkonstrukce', rows: subRows, subtotal: { label: 'Podkonstrukce', value: sum(subRows), format: 'currency' } },
-        { label: 'Spojovací materiál', rows: fastRows, subtotal: { label: 'Spojovací materiál', value: sum(fastRows), format: 'currency' } }
+        { label: 'Povrch', rows: povrch, subtotal: { label: 'Povrch', value: sum(povrch), format: 'currency' } }
       ];
-      if (trimRows.length > 0) groups.push({ label: 'Lišty', rows: trimRows, subtotal: { label: 'Lišty', value: sum(trimRows), format: 'currency' } });
-      if (srvRows.length > 0) groups.push({ label: 'Služby', rows: srvRows, subtotal: { label: 'Služby', value: sum(srvRows), format: 'currency' } });
+
+      if (isTile) {
+        // Dlažba na rektifikačních terčích — bez nosníků, spon a lišt.
+        var pedCountT = Math.ceil(net * 3.0);          // ~3 terče/m² (rošt rohů dlaždic)
+        var subRowsT = [ line(ped.name, pedCountT, 'ks', ped.unitPrice) ];
+        groups.push({ label: 'Podkonstrukce', rows: subRowsT, subtotal: { label: 'Podkonstrukce', value: sum(subRowsT), format: 'currency' } });
+      } else {
+        // Prkna (WPC/dřevo) na nosnících + spojovací materiál + lišty.
+        var joist = compute.catalogPrice(catalog, compute.joistSku(c.substructureType));
+        var fast  = compute.catalogPrice(catalog, isWpc ? 'FAST-CLIP-100' : 'FAST-SCREW-250');
+        var trim  = compute.catalogPrice(catalog, isWpc ? 'TRIM-WPC' : 'TRIM-WOOD');
+        var spacingM = (c.joistSpacing || 500) / 1000;
+        var joistPcs = Math.ceil((spacingM > 0 ? net / spacingM : 0) / 4.0);
+        var pedCount = Math.ceil(net * 2.5);
+        var fastPacks = isWpc ? Math.ceil(net * 20 / 100) : Math.ceil(net * 25 / 250);
+        var trimLen = c.edgeTrim ? Math.ceil(perimA) : 0;
+        var subRows = [
+          line(joist.name, joistPcs, 'ks', joist.unitPrice),
+          line(ped.name, pedCount, 'ks', ped.unitPrice)
+        ];
+        groups.push({ label: 'Podkonstrukce', rows: subRows, subtotal: { label: 'Podkonstrukce', value: sum(subRows), format: 'currency' } });
+        var fastRows = [ line(fast.name, fastPacks, 'bal', fast.unitPrice) ];
+        groups.push({ label: 'Spojovací materiál', rows: fastRows, subtotal: { label: 'Spojovací materiál', value: sum(fastRows), format: 'currency' } });
+        if (trimLen > 0) {
+          var trimRows = [ line(trim.name, trimLen, 'bm', trim.unitPrice) ];
+          groups.push({ label: 'Lišty', rows: trimRows, subtotal: { label: 'Lišty', value: sum(trimRows), format: 'currency' } });
+        }
+      }
+
+      var installQty = c.includeInstallation ? net : 0;
+      if (installQty > 0) {
+        var srvRows = [ line(instal.name, Math.round(installQty * 10) / 10, 'm²', instal.unitPrice) ];
+        groups.push({ label: 'Služby', rows: srvRows, subtotal: { label: 'Služby', value: sum(srvRows), format: 'currency' } });
+      }
 
       var vat = total * 0.21;
       var withVat = total + vat;
@@ -605,7 +731,7 @@ aggregations:
         metrics: {
           totalPrice:  { value: withVat, label: 'Celkem s DPH', unit: 'Kč', format: 'currency' },
           netArea:     { value: Math.round(net * 10) / 10, label: 'Čistá plocha', unit: 'm²' },
-          boardCount:  { value: boardCount, label: 'Počet prken', unit: 'ks' },
+          boardCount:  { value: unitCount, label: unitLabel, unit: 'ks' },
           pricePerM2:  { value: net > 0 ? Math.round(withVat / net) : 0, label: 'Cena za m²', unit: 'Kč', format: 'currency' }
         }
       };
@@ -624,8 +750,19 @@ aggregations:
       var net = Math.max(0, gross - holes);
       var waste = compute.wasteFactor(c.layingDirection);
       var withWaste = net * waste;
+      var isTile = (c.material === 'tile');
       var spacingM = (c.joistSpacing || 500) / 1000;
       var joistLm = spacingM > 0 ? net / spacingM : 0;
+      var pedCount = Math.ceil(net * (isTile ? 3.0 : 2.5));
+
+      // Podkonstrukce: dlažba → terče; prkna → nosníky + terče.
+      var subRows = [ { item: 'Obvod terasy', value: Math.round(perim * 10) / 10, unit: 'm' } ];
+      if (isTile) {
+        subRows.push({ item: 'Rektifikační terče', value: pedCount, unit: 'ks' });
+      } else {
+        subRows.push({ item: 'Délka nosníků (rozteč ' + (c.joistSpacing || 500) + ' mm)', value: Math.round(joistLm * 10) / 10, unit: 'bm' });
+        subRows.push({ item: 'Rektifikační terče', value: pedCount, unit: 'ks' });
+      }
 
       return {
         columns: [
@@ -646,11 +783,7 @@ aggregations:
           },
           {
             label: 'Obvod a podkonstrukce',
-            rows: [
-              { item: 'Obvod terasy', value: Math.round(perim * 10) / 10, unit: 'm' },
-              { item: 'Délka nosníků (rozteč ' + (c.joistSpacing || 500) + ' mm)', value: Math.round(joistLm * 10) / 10, unit: 'bm' }
-            ],
-            subtotal: { label: 'Nosníky celkem', value: Math.round(joistLm * 10) / 10, format: 'number' }
+            rows: subRows
           }
         ],
         footer: [
@@ -674,7 +807,8 @@ aggregations:
       // matM2 = cena materiálu/m², maint = údržba Kč/m²/rok, life = životnost (roky)
       var MATERIALS = {
         wpc:   { label: 'WPC kompozit',     matM2: 857, maint: 0,   life: 25 },
-        larch: { label: 'Sibiřský modřín',  matM2: 649, maint: 120, life: 15 }
+        larch: { label: 'Sibiřský modřín',  matM2: 649, maint: 120, life: 15 },
+        tile:  { label: 'Betonová dlažba',  matM2: 690, maint: 10,  life: 50 }
       };
 
       function tco(m) {
@@ -690,13 +824,15 @@ aggregations:
         };
       }
 
-      var keys = ['wpc', 'larch'];
+      var keys = ['wpc', 'larch', 'tile'];
       var rows = [];
       var byKey = {};
+      var maxOther = 0;
       for (var i = 0; i < keys.length; i++) {
         var m = MATERIALS[keys[i]];
         var t = tco(m);
         byKey[keys[i]] = t;
+        if (keys[i] !== c.material && t.total > maxOther) maxOther = t.total;
         rows.push({
           material: m.label + (keys[i] === c.material ? ' (zvoleno)' : ''),
           initial: Math.round(t.initial),
@@ -707,8 +843,7 @@ aggregations:
       }
 
       var chosen = byKey[c.material] || byKey.wpc;
-      var other = (c.material === 'larch') ? byKey.wpc : byKey.larch;
-      var savings = Math.round(other.total - chosen.total);
+      var savings = Math.round(maxOther - chosen.total);
 
       return {
         columns: [
@@ -720,11 +855,11 @@ aggregations:
         ],
         rows: rows,
         footer: [
-          { label: 'Úspora zvoleného materiálu za ' + years + ' let', value: savings, format: 'currency' }
+          { label: 'Úspora vs. nejdražší alternativa za ' + years + ' let', value: savings, format: 'currency' }
         ],
         metrics: {
           chosenTotal: { value: Math.round(chosen.total), label: 'Náklady ' + years + ' let', unit: 'Kč', format: 'currency' },
-          savings:     { value: savings, label: 'Úspora vs. alternativa', unit: 'Kč', format: 'currency' },
+          savings:     { value: savings, label: 'Úspora vs. nejdražší alt.', unit: 'Kč', format: 'currency' },
           horizon:     { value: years, label: 'Horizont', unit: 'let' }
         }
       };
@@ -895,6 +1030,7 @@ panels:
       }
       function wasteFactor(d) { return d === 'diagonal' ? 1.18 : (d === 'napric' ? 1.07 : 1.05); }
       function deckSku(mat, col) {
+        if (mat === 'tile') return 'DECK-TILE-GREY';
         if (mat === 'larch') return 'DECK-LARCH';
         if (col === 'hneda') return 'DECK-WPC-HNEDA';
         if (col === 'seda') return 'DECK-WPC-SEDA';
@@ -930,24 +1066,16 @@ panels:
       var perim = (c.deckPerimeter || 0) > 0 ? c.deckPerimeter : measPerim;
       var net = Math.max(0, gross - holes);
 
-      var isWpc = (c.material !== 'larch');
+      var isTile = (c.material === 'tile');
+      var isWpc = (c.material === 'wpc');
       var waste = wasteFactor(c.layingDirection);
       var deckArea = net * waste;
-      var boardCount = Math.ceil(deckArea / 0.56);
+      var unitCover = isTile ? 0.36 : 0.56;
+      var boardCount = Math.ceil(deckArea / unitCover);
 
       var deck = priceOf(deckSku(c.material, c.boardColor));
-      var joist = priceOf(c.substructureType === 'wpc' ? 'SUB-WPC-4M'
-                        : (c.substructureType === 'wood' ? 'SUB-WOOD-4M' : 'SUB-ALU-4M'));
       var ped = priceOf('PED-ADJ');
-      var fast = priceOf(isWpc ? 'FAST-CLIP-100' : 'FAST-SCREW-250');
-      var trim = priceOf(isWpc ? 'TRIM-WPC' : 'TRIM-WOOD');
       var instal = priceOf('SRV-INSTALL');
-
-      var spacingM = (c.joistSpacing || 500) / 1000;
-      var joistPcs = Math.ceil((spacingM > 0 ? net / spacingM : 0) / 4.0);
-      var pedCount = Math.ceil(net * 2.5);
-      var fastPacks = isWpc ? Math.ceil(net * 20 / 100) : Math.ceil(net * 25 / 250);
-      var trimLen = c.edgeTrim ? Math.ceil(perim) : 0;
 
       var bidLines = [];
       var subtotal = 0;
@@ -958,15 +1086,27 @@ panels:
         bidLines.push({ item: item, qty: qty, unit: unit, price: price });
       }
       line(deck.name, Math.round(deckArea * 10) / 10, 'm²', deck.unitPrice);
-      line(joist.name, joistPcs, 'ks', joist.unitPrice);
-      line(ped.name, pedCount, 'ks', ped.unitPrice);
-      line(fast.name, fastPacks, 'bal', fast.unitPrice);
-      if (trimLen > 0) line(trim.name, trimLen, 'bm', trim.unitPrice);
+      if (isTile) {
+        line(ped.name, Math.ceil(net * 3.0), 'ks', ped.unitPrice);
+      } else {
+        var joist = priceOf(c.substructureType === 'wpc' ? 'SUB-WPC-4M'
+                          : (c.substructureType === 'wood' ? 'SUB-WOOD-4M' : 'SUB-ALU-4M'));
+        var fast = priceOf(isWpc ? 'FAST-CLIP-100' : 'FAST-SCREW-250');
+        var trim = priceOf(isWpc ? 'TRIM-WPC' : 'TRIM-WOOD');
+        var spacingM = (c.joistSpacing || 500) / 1000;
+        var joistPcs = Math.ceil((spacingM > 0 ? net / spacingM : 0) / 4.0);
+        var fastPacks = isWpc ? Math.ceil(net * 20 / 100) : Math.ceil(net * 25 / 250);
+        var trimLen = c.edgeTrim ? Math.ceil(perim) : 0;
+        line(joist.name, joistPcs, 'ks', joist.unitPrice);
+        line(ped.name, Math.ceil(net * 2.5), 'ks', ped.unitPrice);
+        line(fast.name, fastPacks, 'bal', fast.unitPrice);
+        if (trimLen > 0) line(trim.name, trimLen, 'bm', trim.unitPrice);
+      }
       if (c.includeInstallation) line(instal.name, Math.round(net * 10) / 10, 'm²', instal.unitPrice);
 
       var vat = subtotal * 0.21;
       var total = subtotal + vat;
-      var materialLabel = isWpc ? 'WPC kompozit' : 'Sibiřský modřín';
+      var materialLabel = isTile ? 'Betonová dlažba' : (isWpc ? 'WPC kompozit' : 'Sibiřský modřín');
 
       return {
         hasConfig: true,
