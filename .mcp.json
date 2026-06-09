@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "estoflow": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "estoflow@latest",
+        "mcp",
+        "connect"
+      ]
+    }
+  }
+}
