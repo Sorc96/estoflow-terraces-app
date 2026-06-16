@@ -72,6 +72,20 @@ models:
           podel:    { label: 'Podél (odpad ~5 %)' }
           napric:   { label: 'Napříč (odpad ~7 %)' }
           diagonal: { label: 'Diagonálně 45° (odpad ~18 %)' }
+      boardWidth:
+        type: number
+        default: 140
+        minimum: 50
+        title: Šířka prkna
+        description: Krycí šířka jednoho prkna — určuje rozteč vzoru a počet kusů.
+        unit: mm
+      boardMaxLength:
+        type: number
+        default: 4000
+        minimum: 1000
+        title: Maximální délka prkna
+        description: Nejdelší dodávané prkno — určuje krycí plochu jednoho kusu.
+        unit: mm
 
       # -- Krok 2 · Rozměry (měřeno z výkresu, editovatelné) -----------------
       deckGrossArea:
@@ -390,13 +404,47 @@ computations:
       }
       return 0;
 
-  # Koeficient odpadu dle směru pokládky.
+  # Koeficient odpadu dle směru pokládky (fallback / dlažba).
   wasteFactor:
     params: [direction]
     body: |
       if (direction === 'diagonal') return 1.18;
       if (direction === 'napric') return 1.07;
       return 1.05;
+
+  # Nářez prken — rozpis přes krycí běžné metry (robustní pro libovolný tvar
+  # i více ploch; nezávislé na rekonstrukci obdélníku z plochy a obvodu).
+  # Krycí běžné metry = plocha ÷ krycí šířka prkna. Prken k nákupu = bm ÷ délka
+  # prkna se započtením řezné/manipulační rezervy podle směru pokládky (počítá
+  # se s druhováním odřezků). Délka prkna mění POČET kusů, ne množství materiálu
+  # (m² nakoupeného materiálu ≈ plocha × (1 + rezerva), nezávisle na délce).
+  boardLayout:
+    params: [netArea, boardWidth, boardLength, direction]
+    body: |
+      var bw = boardWidth > 0 ? boardWidth : 140;
+      var bl = boardLength > 0 ? boardLength : 4000;
+      var coverWidth = bw / 1000;               // m, krycí šířka prkna
+      var boardLenM = bl / 1000;                // m, délka prkna
+      var net = netArea > 0 ? netArea : 0;
+      var allowancePct = direction === 'diagonal' ? 0.15
+                       : (direction === 'napric' ? 0.07 : 0.05);
+      if (net <= 0 || coverWidth <= 0 || boardLenM <= 0) {
+        return {
+          linearM: 0, totalBoards: 0, purchasedM: 0, coverArea: 0,
+          offcutM: 0, wastePct: 0, allowancePct: allowancePct
+        };
+      }
+      var linearM = net / coverWidth;                         // krycí běžné metry prken
+      var totalBoards = Math.ceil((linearM * (1 + allowancePct)) / boardLenM);
+      var purchasedM = totalBoards * boardLenM;
+      var coverArea = totalBoards * coverWidth * boardLenM;   // m² nakoupeného materiálu
+      var offcutM = Math.max(0, purchasedM - linearM);
+      var wastePct = linearM > 0 ? offcutM / linearM : 0;
+      return {
+        linearM: linearM, totalBoards: totalBoards, purchasedM: purchasedM,
+        coverArea: coverArea, offcutM: offcutM, wastePct: wastePct,
+        allowancePct: allowancePct
+      };
 
   # Vyhledání ceny v ceníku — odolné (chybějící SKU nehodí výjimku).
   catalogPrice:
@@ -439,9 +487,26 @@ computations:
         if (minY === null || y < minY) minY = y;
         if (maxY === null || y > maxY) maxY = y;
       }
+      // Plocha v px² (mm²) — rect → w·h, polygon → shoelace. Derivace m.area
+      // se v šabloně nástroje nevyhodnocuje, proto se plocha pro popisek
+      // počítá zde a vrací jako areaM2.
+      function geomArea(g) {
+        if (g.type === 'rect') return g.width * g.height;
+        if (g.type === 'polygon' && g.points && g.points.length >= 3) {
+          var a = 0;
+          for (var k = 0; k < g.points.length; k++) {
+            var n = (k + 1) % g.points.length;
+            a += g.points[k].x * g.points[n].y - g.points[n].x * g.points[k].y;
+          }
+          return Math.abs(a) / 2;
+        }
+        return 0;
+      }
+      var areaPx = 0;
       for (var i = 0; i < ids.length; i++) {
         var g = geo(ids[i]);
         if (!g) continue;
+        areaPx += geomArea(g);
         if (g.type === 'rect') { ext(g.x, g.y); ext(g.x + g.width, g.y + g.height); }
         else if (g.type === 'polygon' && g.points) {
           for (var p = 0; p < g.points.length; p++) ext(g.points[p].x, g.points[p].y);
@@ -458,6 +523,7 @@ computations:
         stroke: isTile ? '#6b7280' : '#8a5a2b',
         color:  isTile ? '#6b7280' : '#8a5a2b',
         sw:     isTile ? 1.2 : 1,
+        areaM2: areaPx / (1000 * 1000),
         lines:  [],
         holes:  []
       };
@@ -471,19 +537,46 @@ computations:
       }
       if (minX === null) return out;
       var w = maxX - minX, h = maxY - minY;
-      var pitch = isTile ? 600 : 145;            // dlaždice 60 cm; prkno 140 + mezera 5 mm
+      var bw = c ? (c.boardWidth || 140) : 140;
+      var pitch = isTile ? 600 : (bw + 5);       // dlaždice 60 cm; prkno bw + mezera 5 mm
+      var bl = c ? (c.boardMaxLength || 4000) : 4000;   // max. délka prkna (mm = px)
       var lines = out.lines;
-      var cap = 600;
+      var cap = 1000;
       function vlines() { for (var x = minX + pitch; x < maxX - 1 && lines.length < cap; x += pitch) lines.push({ x1: x, y1: minY, x2: x, y2: maxY }); }
       function hlines() { for (var y = minY + pitch; y < maxY - 1 && lines.length < cap; y += pitch) lines.push({ x1: minX, y1: y, x2: maxX, y2: y }); }
+      // Příčné spáry prken (nářez po max. délce), prostřídané o půlku prkna (cihlová vazba).
+      // Podél: prkna běží podél X → spáry svislé v každém pásu řady.
+      function podelJoints() {
+        var r = 0;
+        for (var y = minY; y < maxY - 1 && lines.length < cap; y += pitch) {
+          var yb = (y + pitch < maxY) ? y + pitch : maxY;
+          var off = (r % 2) * (bl / 2);
+          for (var jx = minX + bl - off; jx < maxX - 1 && lines.length < cap; jx += bl) {
+            if (jx > minX) lines.push({ x1: jx, y1: y, x2: jx, y2: yb });
+          }
+          r++;
+        }
+      }
+      // Napříč: prkna běží podél Y → spáry vodorovné v každém sloupci.
+      function napricJoints() {
+        var col = 0;
+        for (var x = minX; x < maxX - 1 && lines.length < cap; x += pitch) {
+          var xb = (x + pitch < maxX) ? x + pitch : maxX;
+          var off = (col % 2) * (bl / 2);
+          for (var jy = minY + bl - off; jy < maxY - 1 && lines.length < cap; jy += bl) {
+            if (jy > minY) lines.push({ x1: x, y1: jy, x2: xb, y2: jy });
+          }
+          col++;
+        }
+      }
       if (isTile) { vlines(); hlines(); }
-      else if (dir === 'napric') { vlines(); }
+      else if (dir === 'napric') { vlines(); napricJoints(); }
       else if (dir === 'diagonal') {
         var span = w + h;
         for (var sx = minX - h; sx < maxX && lines.length < cap; sx += pitch) {
           lines.push({ x1: sx, y1: minY, x2: sx + span, y2: minY + span });
         }
-      } else { hlines(); }
+      } else { hlines(); podelJoints(); }
       return out;
 
   # Měřené plochy z modelů (rollup ze zakreslené geometrie) — fallback,
@@ -566,7 +659,7 @@ tools:
               font-family="-apple-system, BlinkMacSystemFont, sans-serif"
               font-size="{{ pointsToMm(11) }}" fill="#6b3f17" font-weight="700"
               paint-order="stroke" stroke="#ffffff" stroke-width="{{ pointsToMm(2.5) }}"
-              style="user-select: none">{{ m.name }} · {{ m.area | round(1) }} m²</text>
+              style="user-select: none">{{ m.name }} · {{ viz.areaM2 | round(1) }} m²</text>
         {% endif %}
       </g>
       {% endif %}
@@ -616,8 +709,8 @@ calculators:
       steps:
         - id: material
           label: Materiál
-          description: Zvolte materiál povrchu a směr pokládky.
-          fields: [material, boardColor, layingDirection]
+          description: Zvolte materiál povrchu, rozměry prkna a směr pokládky.
+          fields: [material, boardColor, layingDirection, boardWidth, boardMaxLength]
         - id: rozmery
           label: Rozměry
           description: Zakreslete plochu terasy nástrojem „Plocha terasy" a výřezy nástrojem „Výřez / překážka". Hodnoty lze ručně přepsat.
@@ -630,6 +723,8 @@ calculators:
           fields: [edgeTrim, includeInstallation, tcoYears]
       rules:
         - { field: boardColor,       showWhen: { material: wpc } }
+        - { field: boardWidth,       hideWhen: { material: tile } }
+        - { field: boardMaxLength,   hideWhen: { material: tile } }
         - { field: substructureType, hideWhen: { material: tile } }
         - { field: joistSpacing,     hideWhen: { material: tile } }
         - { field: edgeTrim,         hideWhen: { material: tile } }
@@ -652,14 +747,25 @@ aggregations:
       var holesA = (c.obstaclesArea || 0) > 0 ? c.obstaclesArea : meas.holes;
       var perimA = (c.deckPerimeter || 0) > 0 ? c.deckPerimeter : meas.perim;
       var net = Math.max(0, grossA - holesA);
-      var waste = compute.wasteFactor(c.layingDirection);
-      var coverArea = net * waste;
 
       var isTile = (c.material === 'tile');
       var isWpc  = (c.material === 'wpc');
-      var unitCover = isTile ? 0.36 : 0.56;            // 60×60 dlaždice vs prkno 140×4000
-      var unitCount = Math.ceil(coverArea / unitCover);
-      var unitLabel = isTile ? 'Počet dlaždic' : 'Počet prken';
+      var bw = c.boardWidth || 140;
+      var bl = c.boardMaxLength || 4000;
+
+      // Dlažba → plošně s koeficientem odpadu; prkna → reálný nářez po řadách.
+      var coverArea, unitCount, unitLabel;
+      var layout = null;
+      if (isTile) {
+        coverArea = net * compute.wasteFactor(c.layingDirection);
+        unitCount = Math.ceil(coverArea / 0.36);                  // 60×60 dlaždice
+        unitLabel = 'Počet dlaždic';
+      } else {
+        layout = compute.boardLayout(net, bw, bl, c.layingDirection);
+        coverArea = layout.coverArea;                             // m² zakoupených prken vč. nářezu
+        unitCount = layout.totalBoards;
+        unitLabel = 'Počet prken';
+      }
 
       var deck   = compute.catalogPrice(catalog, compute.deckBoardSku(c.material, c.boardColor));
       var ped    = compute.catalogPrice(catalog, 'PED-ADJ');
@@ -748,9 +854,12 @@ aggregations:
       var holes = (c.obstaclesArea || 0) > 0 ? c.obstaclesArea : meas.holes;
       var perim = (c.deckPerimeter || 0) > 0 ? c.deckPerimeter : meas.perim;
       var net = Math.max(0, gross - holes);
-      var waste = compute.wasteFactor(c.layingDirection);
-      var withWaste = net * waste;
       var isTile = (c.material === 'tile');
+      var bw = c.boardWidth || 140;
+      var bl = c.boardMaxLength || 4000;
+      var layout = isTile ? null : compute.boardLayout(net, bw, bl, c.layingDirection);
+      var withWaste = isTile ? net * compute.wasteFactor(c.layingDirection) : layout.coverArea;
+      var wastePct = isTile ? (compute.wasteFactor(c.layingDirection) - 1) : layout.wastePct;
       var spacingM = (c.joistSpacing || 500) / 1000;
       var joistLm = spacingM > 0 ? net / spacingM : 0;
       var pedCount = Math.ceil(net * (isTile ? 3.0 : 2.5));
@@ -764,30 +873,42 @@ aggregations:
         subRows.push({ item: 'Rektifikační terče', value: pedCount, unit: 'ks' });
       }
 
+      var groups = [
+        {
+          label: 'Plocha',
+          rows: [
+            { item: 'Hrubá plocha terasy', value: Math.round(gross * 10) / 10, unit: 'm²' },
+            { item: 'Plocha výřezů', value: Math.round(holes * 10) / 10, unit: 'm²' },
+            { item: 'Čistá plocha', value: Math.round(net * 10) / 10, unit: 'm²' },
+            { item: 'Materiál vč. nářezu/odpadu', value: Math.round(withWaste * 10) / 10, unit: 'm²' }
+          ],
+          subtotal: { label: 'Čistá plocha', value: Math.round(net * 10) / 10, format: 'number' }
+        }
+      ];
+      if (!isTile && layout) {
+        groups.push({
+          label: 'Nářez prken (' + bw + ' × ' + bl + ' mm)',
+          rows: [
+            { item: 'Krytí — běžné metry prken', value: Math.round(layout.linearM * 10) / 10, unit: 'bm' },
+            { item: 'Prken k nákupu (rezerva ' + Math.round(layout.allowancePct * 100) + ' %)', value: layout.totalBoards, unit: 'ks' },
+            { item: 'Nakoupené běžné metry prken', value: Math.round(layout.purchasedM * 10) / 10, unit: 'bm' },
+            { item: 'Odřezky (odpad z nářezu)', value: Math.round(layout.offcutM * 10) / 10, unit: 'bm' }
+          ],
+          subtotal: { label: 'Prken k nákupu', value: layout.totalBoards, format: 'number' }
+        });
+      }
+      groups.push({ label: 'Obvod a podkonstrukce', rows: subRows });
+
       return {
         columns: [
           { key: 'item',  label: 'Položka' },
           { key: 'value', label: 'Hodnota', align: 'right', format: 'number' },
           { key: 'unit',  label: 'J.m.' }
         ],
-        groups: [
-          {
-            label: 'Plocha',
-            rows: [
-              { item: 'Hrubá plocha terasy', value: Math.round(gross * 10) / 10, unit: 'm²' },
-              { item: 'Plocha výřezů', value: Math.round(holes * 10) / 10, unit: 'm²' },
-              { item: 'Čistá plocha', value: Math.round(net * 10) / 10, unit: 'm²' },
-              { item: 'Plocha vč. odpadu', value: Math.round(withWaste * 10) / 10, unit: 'm²' }
-            ],
-            subtotal: { label: 'Čistá plocha', value: Math.round(net * 10) / 10, format: 'number' }
-          },
-          {
-            label: 'Obvod a podkonstrukce',
-            rows: subRows
-          }
-        ],
+        groups: groups,
         footer: [
-          { label: 'Odpad pro tento směr pokládky', value: Math.round((waste - 1) * 100) + ' %' }
+          { label: isTile ? 'Odpad pro tento směr pokládky' : 'Odpad z nářezu prken',
+            value: Math.round(wastePct * 100) + ' %' }
         ]
       };
 
@@ -1068,10 +1189,18 @@ panels:
 
       var isTile = (c.material === 'tile');
       var isWpc = (c.material === 'wpc');
-      var waste = wasteFactor(c.layingDirection);
-      var deckArea = net * waste;
-      var unitCover = isTile ? 0.36 : 0.56;
-      var boardCount = Math.ceil(deckArea / unitCover);
+      var bw = c.boardWidth || 140;
+      var bl = c.boardMaxLength || 4000;
+      // Dlažba → plošně s odpadem; prkna → reálný nářez po řadách (sdílená computation).
+      var deckArea, boardCount;
+      if (isTile) {
+        deckArea = net * wasteFactor(c.layingDirection);
+        boardCount = Math.ceil(deckArea / 0.36);
+      } else {
+        var layout = compute.boardLayout(net, bw, bl, c.layingDirection);
+        deckArea = layout.coverArea;
+        boardCount = layout.totalBoards;
+      }
 
       var deck = priceOf(deckSku(c.material, c.boardColor));
       var ped = priceOf('PED-ADJ');
