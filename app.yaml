@@ -323,7 +323,9 @@ models:
       priceSubAlu:      { type: number, default: 329, minimum: 0, title: 'Hliníkový nosník 4 m',  unit: 'Kč/ks' }
       priceSubWpc:      { type: number, default: 189, minimum: 0, title: 'WPC hranol 4 m',        unit: 'Kč/ks' }
       priceSubWood:     { type: number, default: 145, minimum: 0, title: 'Dřevěný hranol 4 m',    unit: 'Kč/ks' }
-      pricePedestal:    { type: number, default: 42,  minimum: 0, title: 'Rektifikační terč',     unit: 'Kč/ks' }
+      pricePedestal:    { type: number, default: 42,  minimum: 0, title: 'Rektifikační terč',        unit: 'Kč/ks' }
+      pricePedHigh:     { type: number, default: 85,  minimum: 0, title: 'Rektifikační terč vysoký',  unit: 'Kč/ks' }
+      priceGeotex:      { type: number, default: 25,  minimum: 0, title: 'Geotextilie 300 g/m²',      unit: 'Kč/m²' }
       priceClip:        { type: number, default: 480, minimum: 0, title: 'Nerez spona WPC (bal. 100)',  unit: 'Kč/bal' }
       priceScrew:       { type: number, default: 320, minimum: 0, title: 'Nerez vrut dřevo (bal. 250)', unit: 'Kč/bal' }
       priceTrimWpc:     { type: number, default: 185, minimum: 0, title: 'WPC ukončovací lišta',  unit: 'Kč/bm' }
@@ -350,6 +352,7 @@ lifecycle:
           priceWpcAntracit: 857, priceWpcHneda: 857, priceWpcSeda: 857,
           priceLarch: 649, priceTile: 690,
           priceSubAlu: 329, priceSubWpc: 189, priceSubWood: 145, pricePedestal: 42,
+          pricePedHigh: 85, priceGeotex: 25,
           priceClip: 480, priceScrew: 320, priceTrimWpc: 185, priceTrimWood: 95,
           priceInstall: 450
         });
@@ -494,6 +497,8 @@ computations:
         { field: 'priceSubWpc',      sku: 'SUB-WPC-4M',  category: 'Podkonstrukce', name: 'WPC podkladní hranol 40×60×4000 mm', unit: 'ks', def: 189 },
         { field: 'priceSubWood',     sku: 'SUB-WOOD-4M', category: 'Podkonstrukce', name: 'Dřevěný hranol modřín 45×70×4000 mm', unit: 'ks', def: 145 },
         { field: 'pricePedestal',    sku: 'PED-ADJ',     category: 'Podkonstrukce', name: 'Rektifikační terč nastavitelný 40–60 mm', unit: 'ks', def: 42 },
+        { field: 'pricePedHigh',     sku: 'PED-HIGH',    category: 'Podkonstrukce', name: 'Rektifikační terč vysoký 60–150 mm', unit: 'ks', def: 85 },
+        { field: 'priceGeotex',      sku: 'GEOTEX',      category: 'Podkonstrukce', name: 'Geotextilie 300 g/m² (proti plevelu)', unit: 'm²', def: 25 },
         { field: 'priceClip',        sku: 'FAST-CLIP-100',  category: 'Spojovací materiál', name: 'Nerez montážní spona pro WPC (bal. 100 ks)', unit: 'bal', def: 480 },
         { field: 'priceScrew',       sku: 'FAST-SCREW-250', category: 'Spojovací materiál', name: 'Nerez terasový vrut pro dřevo (bal. 250 ks)', unit: 'bal', def: 320 },
         { field: 'priceTrimWpc',     sku: 'TRIM-WPC',  category: 'Lišty', name: 'WPC ukončovací L-lišta', unit: 'bm', def: 185 },
@@ -532,6 +537,14 @@ computations:
       if (substructureType === 'wpc') return 'SUB-WPC-4M';
       if (substructureType === 'wood') return 'SUB-WOOD-4M';
       return 'SUB-ALU-4M';
+
+  # SKU rektifikačního terče dle výšky nad terénem (cm). Běžný terč zvládá
+  # ~4–6 cm; nad 6 cm je potřeba vyšší (dražší) typ.
+  pedestalSku:
+    params: [installHeight]
+    body: |
+      var h = installHeight || 0;
+      return h > 6 ? 'PED-HIGH' : 'PED-ADJ';
 
   # Vizualizace povrchu — čáry prken / mřížka dlažby pro vykreslení do plochy.
   # Materiál a směr pokládky se čtou z první varianty projektu. Čáry se generují
@@ -828,6 +841,8 @@ calculators:
               - { type: Control, scope: '#/properties/priceSubWpc' }
               - { type: Control, scope: '#/properties/priceSubWood' }
               - { type: Control, scope: '#/properties/pricePedestal' }
+              - { type: Control, scope: '#/properties/pricePedHigh' }
+              - { type: Control, scope: '#/properties/priceGeotex' }
           - type: Group
             label: Spojovací materiál
             elements:
@@ -910,8 +925,12 @@ aggregations:
       }
 
       var deck   = compute.priceOf(meta, prices,compute.deckBoardSku(c.material, c.boardColor));
-      var ped    = compute.priceOf(meta, prices,'PED-ADJ');
+      var ped    = compute.priceOf(meta, prices, compute.pedestalSku(c.installHeight));
       var instal = compute.priceOf(meta, prices,'SRV-INSTALL');
+      // Podklad zemina/štěrk → geotextilie proti plevelu (5 % přesah).
+      var isSoil = (c.substructureBase === 'soil');
+      var geotex = compute.priceOf(meta, prices, 'GEOTEX');
+      var geotexQty = isSoil ? Math.ceil(net * 1.05) : 0;
 
       var total = 0;
       function line(item, qty, unit, unitPrice) {
@@ -930,6 +949,7 @@ aggregations:
         // Dlažba na rektifikačních terčích — bez nosníků, spon a lišt.
         var pedCountT = Math.ceil(net * 3.0);          // ~3 terče/m² (rošt rohů dlaždic)
         var subRowsT = [ line(ped.name, pedCountT, 'ks', ped.unitPrice) ];
+        if (geotexQty > 0) subRowsT.push(line(geotex.name, geotexQty, 'm²', geotex.unitPrice));
         groups.push({ label: 'Podkonstrukce', rows: subRowsT, subtotal: { label: 'Podkonstrukce', value: sum(subRowsT), format: 'currency' } });
       } else {
         // Prkna (WPC/dřevo) na nosnících + spojovací materiál + lišty.
@@ -945,6 +965,7 @@ aggregations:
           line(joist.name, joistPcs, 'ks', joist.unitPrice),
           line(ped.name, pedCount, 'ks', ped.unitPrice)
         ];
+        if (geotexQty > 0) subRows.push(line(geotex.name, geotexQty, 'm²', geotex.unitPrice));
         groups.push({ label: 'Podkonstrukce', rows: subRows, subtotal: { label: 'Podkonstrukce', value: sum(subRows), format: 'currency' } });
         var fastRows = [ line(fast.name, fastPacks, 'bal', fast.unitPrice) ];
         groups.push({ label: 'Spojovací materiál', rows: fastRows, subtotal: { label: 'Spojovací materiál', value: sum(fastRows), format: 'currency' } });
@@ -1006,14 +1027,20 @@ aggregations:
       var joistLm = spacingM > 0 ? net / spacingM : 0;
       var pedCount = Math.ceil(net * (isTile ? 3.0 : 2.5));
 
-      // Podkonstrukce: dlažba → terče; prkna → nosníky + terče.
+      // Podkonstrukce: dlažba → terče; prkna → nosníky + terče. Výška nad
+      // terénem volí typ terče, podklad zemina/štěrk přidá geotextilii.
+      var pedLabel = (c.installHeight || 0) > 6
+        ? 'Rektifikační terče vysoké (' + (c.installHeight || 0) + ' cm)'
+        : 'Rektifikační terče';
+      var geotexQty = (c.substructureBase === 'soil') ? Math.ceil(net * 1.05) : 0;
       var subRows = [ { item: 'Obvod terasy', value: Math.round(perim * 10) / 10, unit: 'm' } ];
       if (isTile) {
-        subRows.push({ item: 'Rektifikační terče', value: pedCount, unit: 'ks' });
+        subRows.push({ item: pedLabel, value: pedCount, unit: 'ks' });
       } else {
         subRows.push({ item: 'Délka nosníků (rozteč ' + (c.joistSpacing || 500) + ' mm)', value: Math.round(joistLm * 10) / 10, unit: 'bm' });
-        subRows.push({ item: 'Rektifikační terče', value: pedCount, unit: 'ks' });
+        subRows.push({ item: pedLabel, value: pedCount, unit: 'ks' });
       }
+      if (geotexQty > 0) subRows.push({ item: 'Geotextilie (podklad zemina/štěrk)', value: geotexQty, unit: 'm²' });
 
       var groups = [
         {
@@ -1376,8 +1403,11 @@ panels:
       }
 
       var deck = priceOf(deckSku(c.material, c.boardColor));
-      var ped = priceOf('PED-ADJ');
+      var ped = priceOf(compute.pedestalSku(c.installHeight));
       var instal = priceOf('SRV-INSTALL');
+      var isSoil = (c.substructureBase === 'soil');
+      var geotex = priceOf('GEOTEX');
+      var geotexQty = isSoil ? Math.ceil(net * 1.05) : 0;
 
       var bidLines = [];
       var subtotal = 0;
@@ -1404,6 +1434,7 @@ panels:
         line(fast.name, fastPacks, 'bal', fast.unitPrice);
         if (trimLen > 0) line(trim.name, trimLen, 'bm', trim.unitPrice);
       }
+      if (geotexQty > 0) line(geotex.name, geotexQty, 'm²', geotex.unitPrice);
       if (c.includeInstallation) line(instal.name, Math.round(net * 10) / 10, 'm²', instal.unitPrice);
 
       var vat = subtotal * 0.21;
