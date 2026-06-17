@@ -12,7 +12,7 @@
 # Modely:   TerraceConfig  — vstupní model kalkulátoru (jedna varianta = jeden řádek)
 #           TerraceSurface — zakreslená plocha terasy (rect/polygon), derivace area+perimeter
 #           TerraceObstacle— zakreslený výřez/překážka (bazén, truhlík), derivace area
-#           terrace_catalog— ceník (x-catalog), seedovaný v lifecycle
+#           terrace_prices — ceník (singleton, editovatelný v kalkulátoru „Ceník"), seedovaný v lifecycle
 # Nástroje: terrace-surface, terrace-obstacle
 # Kalkulátor: terrace — 4 kroky (Materiál · Rozměry · Podkonstrukce · Služby)
 # Agregace: terraceBOM (kusovník), terraceTakeoff (výkaz výměr), terraceTCO (životní náklady)
@@ -104,7 +104,7 @@ models:
         default: 0
         minimum: 0
         title: Plocha výřezů
-        description: Bazény, truhlíky, sloupy — odečítá se od hrubé plochy.
+        description: Bazény, truhlíky, sloupy — odečítají se od hrubé plochy.
         unit: m²
         x-measured:
           model: TerraceObstacle
@@ -203,6 +203,41 @@ models:
     properties:
       project_id: { type: [string, "null"] }
       name: { type: string, default: 'Terasa' }
+
+      # -- Vzhled povrchu — nastavitelný přímo v nástroji (řídí kresbu na
+      #    výkrese). Kalkulátor (TerraceConfig) má vlastní pole pro porovnání
+      #    variant; tahle drží „zakreslenou pravdu" pro vizualizaci.
+      material:
+        type: string
+        default: wpc
+        enum: [wpc, larch, tile]
+        title: Materiál povrchu
+        x-options:
+          wpc:   { label: 'WPC kompozit' }
+          larch: { label: 'Sibiřský modřín' }
+          tile:  { label: 'Betonová dlažba 60×60' }
+      layingDirection:
+        type: string
+        default: podel
+        enum: [podel, napric, diagonal]
+        title: Směr pokládky
+        x-options:
+          podel:    { label: 'Podél' }
+          napric:   { label: 'Napříč' }
+          diagonal: { label: 'Diagonálně 45°' }
+      boardWidth:
+        type: number
+        default: 140
+        minimum: 50
+        title: Šířka prkna
+        unit: mm
+      boardMaxLength:
+        type: number
+        default: 4000
+        minimum: 1000
+        title: Maximální délka prkna
+        unit: mm
+
       regionGeometryIds:
         type: array
         items: { type: string, format: geometries }
@@ -256,7 +291,7 @@ models:
         type: string
         format: geometry
         title: Geometrie výřezu
-        x-geometry-types: [rect, polygon]
+        x-geometry-types: [rect, polygon, circle]
         x-geometry-relation: { multiple: false }
     derivations:
       area:
@@ -268,20 +303,32 @@ models:
         unit: m²
         title: Plocha výřezu
 
-  # --- Ceník (x-catalog), seedovaný v lifecycle -----------------------------
-  terrace_catalog:
-    x-entity: terrace_catalog
-    x-catalog: true
-    x-required-for-save: [project_id, sku]
-    title: Ceník materiálu
-    description: Statický ceník — seedovaný při inicializaci.
+  # --- Ceník (singleton), seedovaný v lifecycle -----------------------------
+  # Ceník = jeden singleton řádek, jedno číselné pole na položku. Editovatelný
+  # v kalkulátoru „Ceník" (jedna záložka). Metadata (sku/název/j.m./kategorie)
+  # drží computation priceMeta; ceny čtou kusovník i nabídka přes priceOf.
+  terrace_prices:
+    x-entity: terrace_prices
+    x-required-for-save: [project_id]
+    title: Ceník
+    description: Editovatelné ceny položek — čtou je kusovník i cenová nabídka.
     properties:
       project_id: { type: [string, "null"] }
-      sku:       { type: string, default: '' }
-      category:  { type: string, default: '' }
-      name:      { type: string, default: '' }
-      unit:      { type: string, default: 'ks' }
-      unitPrice: { type: number, default: 0 }
+      name: { type: string, default: 'Ceník' }
+      priceWpcAntracit: { type: number, default: 857, minimum: 0, title: 'WPC prkno — antracit',  unit: 'Kč/m²' }
+      priceWpcHneda:    { type: number, default: 857, minimum: 0, title: 'WPC prkno — hnědá',     unit: 'Kč/m²' }
+      priceWpcSeda:     { type: number, default: 857, minimum: 0, title: 'WPC prkno — šedá',      unit: 'Kč/m²' }
+      priceLarch:       { type: number, default: 649, minimum: 0, title: 'Sibiřský modřín',       unit: 'Kč/m²' }
+      priceTile:        { type: number, default: 690, minimum: 0, title: 'Betonová dlažba 60×60', unit: 'Kč/m²' }
+      priceSubAlu:      { type: number, default: 329, minimum: 0, title: 'Hliníkový nosník 4 m',  unit: 'Kč/ks' }
+      priceSubWpc:      { type: number, default: 189, minimum: 0, title: 'WPC hranol 4 m',        unit: 'Kč/ks' }
+      priceSubWood:     { type: number, default: 145, minimum: 0, title: 'Dřevěný hranol 4 m',    unit: 'Kč/ks' }
+      pricePedestal:    { type: number, default: 42,  minimum: 0, title: 'Rektifikační terč',     unit: 'Kč/ks' }
+      priceClip:        { type: number, default: 480, minimum: 0, title: 'Nerez spona WPC (bal. 100)',  unit: 'Kč/bal' }
+      priceScrew:       { type: number, default: 320, minimum: 0, title: 'Nerez vrut dřevo (bal. 250)', unit: 'Kč/bal' }
+      priceTrimWpc:     { type: number, default: 185, minimum: 0, title: 'WPC ukončovací lišta',  unit: 'Kč/bm' }
+      priceTrimWood:    { type: number, default: 95,  minimum: 0, title: 'Modřínová krycí lišta',  unit: 'Kč/bm' }
+      priceInstall:     { type: number, default: 450, minimum: 0, title: 'Montáž terasy',         unit: 'Kč/m²' }
 
 # =============================================================================
 # Lifecycle — idempotentní seed ceníku
@@ -291,38 +338,22 @@ lifecycle:
     body: |
       var pid = this.project.id;
 
-      // --- Ceník (idempotentní po jednotlivých SKU — doplní jen chybějící)
-      var catRows = this.models.terrace_catalog.all.value;
-      var existingSku = {};
-      for (var i = 0; i < catRows.length; i++) {
-        if (catRows[i].project_id === pid) existingSku[catRows[i].sku] = true;
+      // --- Ceník (jeden singleton řádek na projekt; idempotentní) ----------
+      var priceRows = this.models.terrace_prices.all.value;
+      var hasPrices = false;
+      for (var i = 0; i < priceRows.length; i++) {
+        if (priceRows[i].project_id === pid) { hasPrices = true; break; }
       }
-      var save = this.models.terrace_catalog.save;
-      var row = function (sku, category, name, unit, unitPrice) {
-        if (existingSku[sku]) return;
-        save({ sku: sku, category: category, name: name, unit: unit,
-               unitPrice: unitPrice, project_id: pid });
-      };
-      // -- Povrchové desky (cena za m²) ------------------------------------
-      row('DECK-WPC-ANTRACIT', 'Povrch', 'WPC terasové prkno 140×25 mm — antracit', 'm²', 857);
-      row('DECK-WPC-HNEDA',    'Povrch', 'WPC terasové prkno 140×25 mm — hnědá',    'm²', 857);
-      row('DECK-WPC-SEDA',     'Povrch', 'WPC terasové prkno 140×25 mm — šedá',     'm²', 857);
-      row('DECK-LARCH',        'Povrch', 'Sibiřský modřín terasové prkno 140×27 mm','m²', 649);
-      row('DECK-TILE-GREY',    'Povrch', 'Betonová terasová dlažba 60×60 cm — šedá', 'm²', 690);
-      // -- Podkonstrukce — nosníky (4 m kus) -------------------------------
-      row('SUB-ALU-4M',  'Podkonstrukce', 'Hliníkový nosník 40×60×4000 mm', 'ks', 329);
-      row('SUB-WPC-4M',  'Podkonstrukce', 'WPC podkladní hranol 40×60×4000 mm', 'ks', 189);
-      row('SUB-WOOD-4M', 'Podkonstrukce', 'Dřevěný hranol modřín 45×70×4000 mm', 'ks', 145);
-      // -- Podkonstrukce — terče / podložky --------------------------------
-      row('PED-ADJ', 'Podkonstrukce', 'Rektifikační terč nastavitelný 40–60 mm', 'ks', 42);
-      // -- Spojovací materiál ----------------------------------------------
-      row('FAST-CLIP-100',  'Spojovací materiál', 'Nerez montážní spona pro WPC (bal. 100 ks)', 'bal', 480);
-      row('FAST-SCREW-250', 'Spojovací materiál', 'Nerez terasový vrut pro dřevo (bal. 250 ks)', 'bal', 320);
-      // -- Lišty ------------------------------------------------------------
-      row('TRIM-WPC',  'Lišty', 'WPC ukončovací L-lišta', 'bm', 185);
-      row('TRIM-WOOD', 'Lišty', 'Modřínová krycí lišta', 'bm', 95);
-      // -- Služby -----------------------------------------------------------
-      row('SRV-INSTALL', 'Služby', 'Montáž terasy vč. podkonstrukce', 'm²', 450);
+      if (!hasPrices) {
+        this.models.terrace_prices.save({
+          project_id: pid, name: 'Ceník',
+          priceWpcAntracit: 857, priceWpcHneda: 857, priceWpcSeda: 857,
+          priceLarch: 649, priceTile: 690,
+          priceSubAlu: 329, priceSubWpc: 189, priceSubWood: 145, pricePedestal: 42,
+          priceClip: 480, priceScrew: 320, priceTrimWpc: 185, priceTrimWood: 95,
+          priceInstall: 450
+        });
+      }
 
       // --- Ukázková data (idempotentní dle existence varianty) ------------
       // Navázáno na geometrii nasazenou přes estoflow_seed_geometry.
@@ -375,6 +406,7 @@ computations:
     body: |
       if (!geo) return 0;
       if (geo.type === 'rect') return geo.width * geo.height;
+      if (geo.type === 'circle') return Math.PI * geo.radius * geo.radius;
       if (geo.type === 'polygon' && geo.points && geo.points.length >= 3) {
         var a = 0;
         for (var i = 0; i < geo.points.length; i++) {
@@ -391,6 +423,7 @@ computations:
     body: |
       if (!geo) return 0;
       if (geo.type === 'rect') return 2 * (geo.width + geo.height);
+      if (geo.type === 'circle') return 2 * Math.PI * geo.radius;
       if (geo.type === 'polygon' && geo.points && geo.points.length >= 2) {
         var p = 0;
         var pts = geo.points;
@@ -446,12 +479,39 @@ computations:
         allowancePct: allowancePct
       };
 
-  # Vyhledání ceny v ceníku — odolné (chybějící SKU nehodí výjimku).
-  catalogPrice:
-    params: [catalog, sku]
+  # Metadata ceníku — mapování pole singletonu terrace_prices → sku/název/j.m./
+  # kategorie. Jediný zdroj pravdy pro názvy položek v kusovníku i nabídce.
+  priceMeta:
+    params: []
     body: |
-      for (var i = 0; i < catalog.length; i++) {
-        if (catalog[i].sku === sku) return catalog[i];
+      return [
+        { field: 'priceWpcAntracit', sku: 'DECK-WPC-ANTRACIT', category: 'Povrch', name: 'WPC terasové prkno 140×25 mm — antracit', unit: 'm²', def: 857 },
+        { field: 'priceWpcHneda',    sku: 'DECK-WPC-HNEDA',    category: 'Povrch', name: 'WPC terasové prkno 140×25 mm — hnědá',    unit: 'm²', def: 857 },
+        { field: 'priceWpcSeda',     sku: 'DECK-WPC-SEDA',     category: 'Povrch', name: 'WPC terasové prkno 140×25 mm — šedá',     unit: 'm²', def: 857 },
+        { field: 'priceLarch',       sku: 'DECK-LARCH',        category: 'Povrch', name: 'Sibiřský modřín terasové prkno 140×27 mm', unit: 'm²', def: 649 },
+        { field: 'priceTile',        sku: 'DECK-TILE-GREY',    category: 'Povrch', name: 'Betonová terasová dlažba 60×60 cm — šedá', unit: 'm²', def: 690 },
+        { field: 'priceSubAlu',      sku: 'SUB-ALU-4M',  category: 'Podkonstrukce', name: 'Hliníkový nosník 40×60×4000 mm', unit: 'ks', def: 329 },
+        { field: 'priceSubWpc',      sku: 'SUB-WPC-4M',  category: 'Podkonstrukce', name: 'WPC podkladní hranol 40×60×4000 mm', unit: 'ks', def: 189 },
+        { field: 'priceSubWood',     sku: 'SUB-WOOD-4M', category: 'Podkonstrukce', name: 'Dřevěný hranol modřín 45×70×4000 mm', unit: 'ks', def: 145 },
+        { field: 'pricePedestal',    sku: 'PED-ADJ',     category: 'Podkonstrukce', name: 'Rektifikační terč nastavitelný 40–60 mm', unit: 'ks', def: 42 },
+        { field: 'priceClip',        sku: 'FAST-CLIP-100',  category: 'Spojovací materiál', name: 'Nerez montážní spona pro WPC (bal. 100 ks)', unit: 'bal', def: 480 },
+        { field: 'priceScrew',       sku: 'FAST-SCREW-250', category: 'Spojovací materiál', name: 'Nerez terasový vrut pro dřevo (bal. 250 ks)', unit: 'bal', def: 320 },
+        { field: 'priceTrimWpc',     sku: 'TRIM-WPC',  category: 'Lišty', name: 'WPC ukončovací L-lišta', unit: 'bm', def: 185 },
+        { field: 'priceTrimWood',    sku: 'TRIM-WOOD', category: 'Lišty', name: 'Modřínová krycí lišta', unit: 'bm', def: 95 },
+        { field: 'priceInstall',     sku: 'SRV-INSTALL', category: 'Služby', name: 'Montáž terasy vč. podkonstrukce', unit: 'm²', def: 450 }
+      ];
+
+  # Vyhledání ceny v singletonu — odolné (chybějící SKU nehodí výjimku).
+  # prices = řádek terrace_prices; meta = výstup priceMeta().
+  priceOf:
+    params: [meta, prices, sku]
+    body: |
+      for (var i = 0; i < meta.length; i++) {
+        if (meta[i].sku === sku) {
+          var m = meta[i];
+          var v = (prices && prices[m.field] != null) ? prices[m.field] : m.def;
+          return { sku: sku, name: m.name, unit: m.unit, unitPrice: v };
+        }
       }
       return { sku: sku, name: sku, unit: 'ks', unitPrice: 0 };
 
@@ -515,8 +575,10 @@ computations:
       var pid = surface ? surface.project_id : null;
       var cfgs = (models.TerraceConfig || []).filter(function (c) { return c.project_id === pid; });
       var c = cfgs[0] || null;
-      var material = c ? c.material : 'wpc';
-      var dir = c ? c.layingDirection : 'podel';
+      // Vzhled se čte primárně ze zakreslené plochy (nastaveno v nástroji);
+      // fallback na první variantu kalkulátoru a nakonec na výchozí hodnoty.
+      var material = (surface && surface.material) || (c ? c.material : null) || 'wpc';
+      var dir = (surface && surface.layingDirection) || (c ? c.layingDirection : null) || 'podel';
       var isTile = (material === 'tile');
       var out = {
         fill:   isTile ? 'rgba(150,160,166,0.18)' : 'rgba(184,118,62,0.20)',
@@ -533,13 +595,14 @@ computations:
         var og = geo(obs[oi].drivingGeometryId);
         if (!og) continue;
         if (og.type === 'rect') out.holes.push({ kind: 'rect', x: og.x, y: og.y, w: og.width, h: og.height });
+        else if (og.type === 'circle') out.holes.push({ kind: 'circle', cx: og.x, cy: og.y, r: og.radius });
         else if (og.type === 'polygon' && og.svgPoints) out.holes.push({ kind: 'poly', pts: og.svgPoints });
       }
       if (minX === null) return out;
       var w = maxX - minX, h = maxY - minY;
-      var bw = c ? (c.boardWidth || 140) : 140;
+      var bw = (surface && surface.boardWidth) || (c ? c.boardWidth : 0) || 140;
       var pitch = isTile ? 600 : (bw + 5);       // dlaždice 60 cm; prkno bw + mezera 5 mm
-      var bl = c ? (c.boardMaxLength || 4000) : 4000;   // max. délka prkna (mm = px)
+      var bl = (surface && surface.boardMaxLength) || (c ? c.boardMaxLength : 0) || 4000;   // max. délka prkna (mm = px)
       var lines = out.lines;
       var cap = 1000;
       function vlines() { for (var x = minX + pitch; x < maxX - 1 && lines.length < cap; x += pitch) lines.push({ x1: x, y1: minY, x2: x, y2: maxY }); }
@@ -605,7 +668,7 @@ tools:
     icon: o_deck
     label: Plocha terasy
     namePrefix: Terasa
-    dialogFields: [name, regionGeometryIds]
+    dialogFields: [name, material, layingDirection, boardWidth, boardMaxLength, regionGeometryIds]
     template: |
       {% if geos | length > 0 %}
       {% set viz = compute.surfaceLines(geo, models, m) %}
@@ -626,6 +689,8 @@ tools:
             {% for ho in viz.holes %}
             {% if ho.kind == 'rect' %}
             <rect x="{{ ho.x }}" y="{{ ho.y }}" width="{{ ho.w }}" height="{{ ho.h }}" fill="#000000" />
+            {% elif ho.kind == 'circle' %}
+            <circle cx="{{ ho.cx }}" cy="{{ ho.cy }}" r="{{ ho.r }}" fill="#000000" />
             {% elif ho.kind == 'poly' %}
             <polygon points="{{ ho.pts }}" fill="#000000" />
             {% endif %}
@@ -680,6 +745,10 @@ tools:
         <rect x="{{ g.x }}" y="{{ g.y }}" width="{{ g.width }}" height="{{ g.height }}"
               fill="rgba(71, 85, 105, 0.30)" stroke="#475569" stroke-width="2"
               stroke-dasharray="6 3" vector-effect="non-scaling-stroke" />
+        {% elif g.type == 'circle' %}
+        <circle cx="{{ g.x }}" cy="{{ g.y }}" r="{{ g.radius }}"
+                fill="rgba(71, 85, 105, 0.30)" stroke="#475569" stroke-width="2"
+                stroke-dasharray="6 3" vector-effect="non-scaling-stroke" />
         {% elif g.type == 'polygon' and g.svgPoints %}
         <polygon points="{{ g.svgPoints }}"
                  fill="rgba(71, 85, 105, 0.30)" stroke="#475569" stroke-width="2"
@@ -713,7 +782,7 @@ calculators:
           fields: [material, boardColor, layingDirection, boardWidth, boardMaxLength]
         - id: rozmery
           label: Rozměry
-          description: Zakreslete plochu terasy nástrojem „Plocha terasy" a výřezy nástrojem „Výřez / překážka". Hodnoty lze ručně přepsat.
+          description: Zakreslete plochu terasy nástrojem „Plocha terasy“ a výřezy nástrojem „Výřez / překážka“. Hodnoty lze ručně přepsat.
           fields: [deckGrossArea, obstaclesArea, netDeckArea, deckPerimeter]
         - id: podkonstrukce
           label: Podkonstrukce
@@ -730,18 +799,91 @@ calculators:
         - { field: edgeTrim,         hideWhen: { material: tile } }
     outputs: [bom, takeoff, tco]
 
+  # --- Editor ceníku — každá položka (SKU) = jedna instance, cena editovatelná.
+  #     sku je readOnly (řídí párování s výpočty). Změny se přes catalog param
+  #     ihned promítnou do kusovníku i cenové nabídky.
+  cenik:
+    label: Ceník
+    icon: o_sell
+    inputModel: terrace_prices
+    instanceNoun: Sada cen
+    description: Ceny položek pro kusovník a cenovou nabídku — seskupené po kategoriích.
+    allowDuplicate: false
+    form:
+      uiSchema:
+        type: VerticalLayout
+        elements:
+          - type: Group
+            label: Povrch
+            elements:
+              - { type: Control, scope: '#/properties/priceWpcAntracit' }
+              - { type: Control, scope: '#/properties/priceWpcHneda' }
+              - { type: Control, scope: '#/properties/priceWpcSeda' }
+              - { type: Control, scope: '#/properties/priceLarch' }
+              - { type: Control, scope: '#/properties/priceTile' }
+          - type: Group
+            label: Podkonstrukce
+            elements:
+              - { type: Control, scope: '#/properties/priceSubAlu' }
+              - { type: Control, scope: '#/properties/priceSubWpc' }
+              - { type: Control, scope: '#/properties/priceSubWood' }
+              - { type: Control, scope: '#/properties/pricePedestal' }
+          - type: Group
+            label: Spojovací materiál
+            elements:
+              - { type: Control, scope: '#/properties/priceClip' }
+              - { type: Control, scope: '#/properties/priceScrew' }
+          - type: Group
+            label: Lišty
+            elements:
+              - { type: Control, scope: '#/properties/priceTrimWpc' }
+              - { type: Control, scope: '#/properties/priceTrimWood' }
+          - type: Group
+            label: Služby
+            elements:
+              - { type: Control, scope: '#/properties/priceInstall' }
+    outputs: [cenik-prehled]
+
 # =============================================================================
-# Aggregations — signatura (models, instance, catalog, compute)
+# Aggregations — signatura (models, instance, compute). Ceny se čtou
+# z editovatelného singletonu terrace_prices (models.terrace_prices) přes priceOf, ne přes
+# zrušený catalog param — viz kalkulátor „Ceník".
 # =============================================================================
 aggregations:
 
+  # --- Přehled celého ceníku — pro editor cen (čte všechny řádky z catalog) --
+  cenikPrehled:
+    params: [models, instance, compute]
+    body: |
+      var prices = instance || {};
+      var meta = compute.priceMeta();
+      var rows = [];
+      for (var i = 0; i < meta.length; i++) {
+        var m = meta[i];
+        rows.push({ category: m.category, name: m.name, unit: m.unit,
+                    unitPrice: (prices[m.field] != null ? prices[m.field] : m.def) });
+      }
+      return {
+        columns: [
+          { key: 'name',      label: 'Položka' },
+          { key: 'unit',      label: 'J.m.' },
+          { key: 'unitPrice', label: 'Cena za j.', align: 'right', format: 'currency' }
+        ],
+        rows: rows,
+        metrics: {
+          itemCount: { value: rows.length, label: 'Počet položek ceníku', unit: 'ks' }
+        }
+      };
+
   # --- Kusovník — kategorizovaný, oceněný -----------------------------------
   terraceBOM:
-    params: [models, instance, catalog, compute]
+    params: [models, instance, compute]
     body: |
       var c = instance;
       if (!c) return { columns: [], groups: [], footer: [], metrics: {} };
 
+      var prices = (models.terrace_prices || []).filter(function (r) { return r.project_id === c.project_id; })[0] || {};
+      var meta = compute.priceMeta();
       var meas = compute.measuredNet(models, c);
       var grossA = (c.deckGrossArea || 0) > 0 ? c.deckGrossArea : meas.gross;
       var holesA = (c.obstaclesArea || 0) > 0 ? c.obstaclesArea : meas.holes;
@@ -767,9 +909,9 @@ aggregations:
         unitLabel = 'Počet prken';
       }
 
-      var deck   = compute.catalogPrice(catalog, compute.deckBoardSku(c.material, c.boardColor));
-      var ped    = compute.catalogPrice(catalog, 'PED-ADJ');
-      var instal = compute.catalogPrice(catalog, 'SRV-INSTALL');
+      var deck   = compute.priceOf(meta, prices,compute.deckBoardSku(c.material, c.boardColor));
+      var ped    = compute.priceOf(meta, prices,'PED-ADJ');
+      var instal = compute.priceOf(meta, prices,'SRV-INSTALL');
 
       var total = 0;
       function line(item, qty, unit, unitPrice) {
@@ -791,9 +933,9 @@ aggregations:
         groups.push({ label: 'Podkonstrukce', rows: subRowsT, subtotal: { label: 'Podkonstrukce', value: sum(subRowsT), format: 'currency' } });
       } else {
         // Prkna (WPC/dřevo) na nosnících + spojovací materiál + lišty.
-        var joist = compute.catalogPrice(catalog, compute.joistSku(c.substructureType));
-        var fast  = compute.catalogPrice(catalog, isWpc ? 'FAST-CLIP-100' : 'FAST-SCREW-250');
-        var trim  = compute.catalogPrice(catalog, isWpc ? 'TRIM-WPC' : 'TRIM-WOOD');
+        var joist = compute.priceOf(meta, prices,compute.joistSku(c.substructureType));
+        var fast  = compute.priceOf(meta, prices,isWpc ? 'FAST-CLIP-100' : 'FAST-SCREW-250');
+        var trim  = compute.priceOf(meta, prices,isWpc ? 'TRIM-WPC' : 'TRIM-WOOD');
         var spacingM = (c.joistSpacing || 500) / 1000;
         var joistPcs = Math.ceil((spacingM > 0 ? net / spacingM : 0) / 4.0);
         var pedCount = Math.ceil(net * 2.5);
@@ -844,7 +986,7 @@ aggregations:
 
   # --- Výkaz výměr — z čísel ve formuláři -----------------------------------
   terraceTakeoff:
-    params: [models, instance, catalog, compute]
+    params: [models, instance, compute]
     body: |
       var c = instance;
       if (!c) return { columns: [], groups: [], footer: [] };
@@ -914,7 +1056,7 @@ aggregations:
 
   # --- Srovnání životních nákladů (TCO) -------------------------------------
   terraceTCO:
-    params: [models, instance, catalog, compute]
+    params: [models, instance, compute]
     body: |
       var c = instance;
       if (!c) return { columns: [], rows: [], metrics: {} };
@@ -989,6 +1131,14 @@ aggregations:
 # Views
 # =============================================================================
 views:
+
+  - id: cenik-prehled
+    label: Přehled ceníku
+    icon: o_sell
+    aggregation: cenikPrehled
+    layout:
+      - { type: metrics, source: cenikPrehled.metrics }
+      - { type: table,   source: cenikPrehled, groupBy: category }
 
   - id: bom
     label: Kusovník
@@ -1079,8 +1229,8 @@ panels:
 
         {% if not hasConfig %}
         <div class="tp-empty">
-          Otevřete kalkulátor «Kalkulátor terasy», vyplňte variantu a zakreslete
-          plochu terasy nástrojem «Plocha terasy».
+          Otevřete kalkulátor „Kalkulátor terasy“, vyplňte variantu a zakreslete
+          plochu terasy nástrojem „Plocha terasy“.
         </div>
         {% else %}
 
@@ -1130,7 +1280,8 @@ panels:
       var configs = (models.TerraceConfig || []).filter(function (r) { return r.project_id === pid; });
       var surfaces = (models.TerraceSurface || []).filter(function (r) { return r.project_id === pid; });
       var obstacles = (models.TerraceObstacle || []).filter(function (r) { return r.project_id === pid; });
-      var catalog = (models.terrace_catalog || []).filter(function (r) { return r.project_id === pid; });
+      var prices = (models.terrace_prices || []).filter(function (r) { return r.project_id === pid; })[0] || {};
+      var meta = compute.priceMeta();
 
       var now = new Date();
       function pad(n) { return n < 10 ? '0' + n : '' + n; }
@@ -1145,10 +1296,7 @@ panels:
                  projectName: (project && project.name) || 'Projekt' };
       }
 
-      function priceOf(sku) {
-        for (var p = 0; p < catalog.length; p++) { if (catalog[p].sku === sku) return catalog[p]; }
-        return { sku: sku, name: sku, unit: 'ks', unitPrice: 0 };
-      }
+      function priceOf(sku) { return compute.priceOf(meta, prices, sku); }
       function wasteFactor(d) { return d === 'diagonal' ? 1.18 : (d === 'napric' ? 1.07 : 1.05); }
       function deckSku(mat, col) {
         if (mat === 'tile') return 'DECK-TILE-GREY';
