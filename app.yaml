@@ -50,9 +50,9 @@ models:
         enum: [wpc, larch, tile]
         title: Materiál povrchu
         x-options:
-          wpc:   { label: 'WPC kompozit — bezúdržbový (857 Kč/m²)' }
-          larch: { label: 'Sibiřský modřín — přírodní dřevo (649 Kč/m²)' }
-          tile:  { label: 'Betonová dlažba 60×60 — na terče (690 Kč/m²)' }
+          wpc:   { label: 'WPC kompozit — bezúdržbový' }
+          larch: { label: 'Sibiřský modřín — přírodní dřevo' }
+          tile:  { label: 'Betonová dlažba 60×60 — na terče' }
       boardColor:
         type: string
         default: antracit
@@ -138,9 +138,9 @@ models:
         enum: [alu, wpc, wood]
         title: Typ podkladního nosníku
         x-options:
-          alu:  { label: 'Hliníkový nosník (329 Kč/4 m)' }
-          wpc:  { label: 'WPC hranol (189 Kč/4 m)' }
-          wood: { label: 'Dřevěný hranol modřín (145 Kč/4 m)' }
+          alu:  { label: 'Hliníkový nosník' }
+          wpc:  { label: 'WPC hranol' }
+          wood: { label: 'Dřevěný hranol modřín' }
       joistSpacing:
         type: number
         default: 500
@@ -171,7 +171,7 @@ models:
       includeInstallation:
         type: boolean
         default: false
-        title: Montáž na klíč (450 Kč/m²)
+        title: Montáž na klíč
       tcoYears:
         type: number
         default: 10
@@ -1067,11 +1067,15 @@ aggregations:
       var net = Math.max(0, grossA - holesA);
       var years = c.tcoYears || 10;
 
-      // matM2 = cena materiálu/m², maint = údržba Kč/m²/rok, life = životnost (roky)
+      // Cena materiálu/m² se bere z editovatelného ceníku (terrace_prices) —
+      // WPC dle zvolené barvy, modřín a dlažba dle svých SKU. maint = údržba
+      // Kč/m²/rok, life = životnost (roky) zůstávají jako předpoklady TCO.
+      var prices = (models.terrace_prices || []).filter(function (r) { return r.project_id === c.project_id; })[0] || {};
+      var meta = compute.priceMeta();
       var MATERIALS = {
-        wpc:   { label: 'WPC kompozit',     matM2: 857, maint: 0,   life: 25 },
-        larch: { label: 'Sibiřský modřín',  matM2: 649, maint: 120, life: 15 },
-        tile:  { label: 'Betonová dlažba',  matM2: 690, maint: 10,  life: 50 }
+        wpc:   { label: 'WPC kompozit',    matM2: compute.priceOf(meta, prices, compute.deckBoardSku('wpc', c.boardColor)).unitPrice, maint: 0,   life: 25 },
+        larch: { label: 'Sibiřský modřín', matM2: compute.priceOf(meta, prices, 'DECK-LARCH').unitPrice,    maint: 120, life: 15 },
+        tile:  { label: 'Betonová dlažba', matM2: compute.priceOf(meta, prices, 'DECK-TILE-GREY').unitPrice, maint: 10,  life: 50 }
       };
 
       function tco(m) {
@@ -1212,8 +1216,29 @@ panels:
                      font-size: 11px; color: #90a4ae; }
         .tp-empty { padding: 40px 20px; text-align: center; color: #78909C; font-size: 14px;
                     background: #FAFAFA; border-radius: 4px; border: 1px dashed #d6c3ab; }
+        .tp-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+        .tp-print-btn { font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+                        border: 1px solid #b8763e; background: #b8763e; color: #fff;
+                        padding: 8px 16px; border-radius: 4px; }
+        .tp-print-btn:hover { background: #8a5a2b; border-color: #8a5a2b; }
+        /* Tisk / uložit PDF — čistá A4, skryté tlačítko, věrné barvy. */
+        @media print {
+          @page { size: A4; margin: 14mm; }
+          body { background: #fff; margin: 0; }
+          .tp-toolbar { display: none !important; }
+          .tp { max-width: none; border: none; border-radius: 0; padding: 0;
+                -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .tp-kpis div, .tp-table th, .tp-totals, .tp-logo {
+                -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .tp-table tr, .tp-sign { page-break-inside: avoid; }
+        }
       </style>
       <div class="tp">
+        {% if hasConfig %}
+        <div class="tp-toolbar">
+          <button type="button" class="tp-print-btn" onclick="window.print()">🖨 Tisk / uložit PDF</button>
+        </div>
+        {% endif %}
         <div class="tp-header">
           <div class="tp-logo">T</div>
           <div class="tp-brand">
