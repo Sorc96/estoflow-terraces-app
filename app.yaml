@@ -8,14 +8,16 @@
 # Firemní identita v panelu (TerasProfi s.r.o. / PlanTeras.cz) je FIKTIVNÍ
 # placeholder — snadno přepsatelný.
 #
-# Modely:   TerraceConfig  — vstupní model kalkulátoru (jedna varianta = jeden řádek)
+# Modely:   TerraceConfig  — vstupní model kalkulátoru; jedna varianta = jeden řádek.
+#                            Drží VŠECHNO: materiál, rozměry, podkonstrukci, služby
+#                            a navíc vlastní ceník + parametry kalkulace (per-varianta).
 #           TerraceSurface — zakreslená plocha terasy (rect/polygon), derivace area+perimeter
 #           TerraceObstacle— zakreslený výřez/překážka (bazén, truhlík), derivace area
-#           terrace_prices — ceník (singleton, editovatelný v kalkulátoru „Ceník"), seedovaný v lifecycle
 # Nástroje: terrace-surface, terrace-obstacle
-# Kalkulátor: terrace — 4 kroky (Materiál · Rozměry · Podkonstrukce · Služby)
-# Agregace: terraceBOM (kusovník), terraceTakeoff (výkaz výměr)
-# Pohledy:  bom, takeoff
+# Kalkulátor: terrace — JEDEN sjednocený kalkulátor, 6 kroků
+#             (Materiál · Rozměry · Podkonstrukce · Služby · Ceník · Parametry)
+# Agregace: terraceBOM (kusovník), terraceTakeoff (výkaz výměr), terraceWarnings (kontrola)
+# Pohledy:  bom, takeoff, warnings
 # Panel:    quote — cenová nabídka TerasProfi s.r.o.
 # =============================================================================
 
@@ -179,6 +181,39 @@ models:
         default: false
         title: Montáž na klíč
 
+      # -- Krok 5 · Ceník (per-varianta; výchozí = standardní ceník) ----------
+      # Ceny čtou kusovník i cenová nabídka přímo z varianty přes priceOf.
+      # Metadata (sku/název/j.m./kategorie) drží computation priceMeta.
+      priceWpcAntracit: { type: number, default: 857, minimum: 0, title: 'WPC prkno — antracit',  unit: 'Kč/m²' }
+      priceWpcHneda:    { type: number, default: 857, minimum: 0, title: 'WPC prkno — hnědá',     unit: 'Kč/m²' }
+      priceWpcSeda:     { type: number, default: 857, minimum: 0, title: 'WPC prkno — šedá',      unit: 'Kč/m²' }
+      priceLarch:       { type: number, default: 649, minimum: 0, title: 'Sibiřský modřín',       unit: 'Kč/m²' }
+      priceTile:        { type: number, default: 690, minimum: 0, title: 'Betonová dlažba 60×60', unit: 'Kč/m²' }
+      priceSubAlu:      { type: number, default: 329, minimum: 0, title: 'Hliníkový nosník 4 m',  unit: 'Kč/ks' }
+      priceSubWpc:      { type: number, default: 189, minimum: 0, title: 'WPC hranol 4 m',        unit: 'Kč/ks' }
+      priceSubWood:     { type: number, default: 145, minimum: 0, title: 'Dřevěný hranol 4 m',    unit: 'Kč/ks' }
+      pricePedestal:    { type: number, default: 42,  minimum: 0, title: 'Rektifikační terč',        unit: 'Kč/ks' }
+      pricePedHigh:     { type: number, default: 85,  minimum: 0, title: 'Rektifikační terč vysoký',  unit: 'Kč/ks' }
+      priceGeotex:      { type: number, default: 25,  minimum: 0, title: 'Geotextilie 300 g/m²',      unit: 'Kč/m²' }
+      priceClip:        { type: number, default: 480, minimum: 0, title: 'Nerez spona WPC (bal. 100)',  unit: 'Kč/bal' }
+      priceScrew:       { type: number, default: 320, minimum: 0, title: 'Nerez vrut dřevo (bal. 250)', unit: 'Kč/bal' }
+      priceTrimWpc:     { type: number, default: 185, minimum: 0, title: 'WPC ukončovací lišta',  unit: 'Kč/bm' }
+      priceTrimWood:    { type: number, default: 95,  minimum: 0, title: 'Modřínová krycí lišta',  unit: 'Kč/bm' }
+      priceInstall:     { type: number, default: 450, minimum: 0, title: 'Montáž terasy',         unit: 'Kč/m²' }
+
+      # -- Krok 6 · Parametry kalkulace (per-varianta) ------------------------
+      # Odhadové konstanty spotřeby materiálu — čte je compute.constants(instance).
+      # DPH zůstává natvrdo v compute.constants.
+      pedestalPerM2Board: { type: number, default: 2.5,  minimum: 0,    title: 'Terče na m² (prkna)',   unit: 'ks/m²' }
+      pedestalPerM2Tile:  { type: number, default: 3.0,  minimum: 0,    title: 'Terče na m² (dlažba)',  unit: 'ks/m²' }
+      clipPerM2:          { type: number, default: 20,   minimum: 0,    title: 'Spony na m² (WPC)',     unit: 'ks/m²' }
+      clipPerPack:        { type: number, default: 100,  minimum: 1,    title: 'Spon v balení',         unit: 'ks' }
+      screwPerM2:         { type: number, default: 25,   minimum: 0,    title: 'Vruty na m² (dřevo)',   unit: 'ks/m²' }
+      screwPerPack:       { type: number, default: 250,  minimum: 1,    title: 'Vrutů v balení',        unit: 'ks' }
+      geotexOverlapPct:   { type: number, default: 5,    minimum: 0,    title: 'Přesah geotextilie',    unit: '%' }
+      tileArea:           { type: number, default: 0.36, minimum: 0.01, title: 'Krycí plocha dlaždice', unit: 'm²' }
+      stockLength:        { type: number, default: 4.0,  minimum: 0.5,  title: 'Délka nosníku/prkna',   unit: 'm' }
+
     # Kompozitní derivace inputModelu — čistá plocha = plochy minus výřezy.
     derivations:
       measuredNetArea:
@@ -306,96 +341,15 @@ models:
         unit: m²
         title: Plocha výřezu
 
-  # --- Ceník (singleton), seedovaný v lifecycle -----------------------------
-  # Ceník = jeden singleton řádek, jedno číselné pole na položku. Editovatelný
-  # v kalkulátoru „Ceník" (jedna záložka). Metadata (sku/název/j.m./kategorie)
-  # drží computation priceMeta; ceny čtou kusovník i nabídka přes priceOf.
-  terrace_prices:
-    x-entity: terrace_prices
-    x-required-for-save: [project_id]
-    title: Ceník
-    description: Editovatelné ceny položek — čtou je kusovník i cenová nabídka.
-    properties:
-      project_id: { type: [string, "null"] }
-      name: { type: string, default: 'Ceník' }
-      priceWpcAntracit: { type: number, default: 857, minimum: 0, title: 'WPC prkno — antracit',  unit: 'Kč/m²' }
-      priceWpcHneda:    { type: number, default: 857, minimum: 0, title: 'WPC prkno — hnědá',     unit: 'Kč/m²' }
-      priceWpcSeda:     { type: number, default: 857, minimum: 0, title: 'WPC prkno — šedá',      unit: 'Kč/m²' }
-      priceLarch:       { type: number, default: 649, minimum: 0, title: 'Sibiřský modřín',       unit: 'Kč/m²' }
-      priceTile:        { type: number, default: 690, minimum: 0, title: 'Betonová dlažba 60×60', unit: 'Kč/m²' }
-      priceSubAlu:      { type: number, default: 329, minimum: 0, title: 'Hliníkový nosník 4 m',  unit: 'Kč/ks' }
-      priceSubWpc:      { type: number, default: 189, minimum: 0, title: 'WPC hranol 4 m',        unit: 'Kč/ks' }
-      priceSubWood:     { type: number, default: 145, minimum: 0, title: 'Dřevěný hranol 4 m',    unit: 'Kč/ks' }
-      pricePedestal:    { type: number, default: 42,  minimum: 0, title: 'Rektifikační terč',        unit: 'Kč/ks' }
-      pricePedHigh:     { type: number, default: 85,  minimum: 0, title: 'Rektifikační terč vysoký',  unit: 'Kč/ks' }
-      priceGeotex:      { type: number, default: 25,  minimum: 0, title: 'Geotextilie 300 g/m²',      unit: 'Kč/m²' }
-      priceClip:        { type: number, default: 480, minimum: 0, title: 'Nerez spona WPC (bal. 100)',  unit: 'Kč/bal' }
-      priceScrew:       { type: number, default: 320, minimum: 0, title: 'Nerez vrut dřevo (bal. 250)', unit: 'Kč/bal' }
-      priceTrimWpc:     { type: number, default: 185, minimum: 0, title: 'WPC ukončovací lišta',  unit: 'Kč/bm' }
-      priceTrimWood:    { type: number, default: 95,  minimum: 0, title: 'Modřínová krycí lišta',  unit: 'Kč/bm' }
-      priceInstall:     { type: number, default: 450, minimum: 0, title: 'Montáž terasy',         unit: 'Kč/m²' }
-
-  # --- Parametry kalkulace (singleton), seedovaný v lifecycle ---------------
-  # Editovatelné odhadové konstanty spotřeby materiálu — čte je compute.constants()
-  # (kusovník, výkaz výměr i cenová nabídka). DPH zůstává natvrdo.
-  terrace_params:
-    x-entity: terrace_params
-    x-required-for-save: [project_id]
-    title: Parametry kalkulace
-    description: Odhadové konstanty spotřeby materiálu — čte je kusovník i cenová nabídka.
-    properties:
-      project_id: { type: [string, "null"] }
-      name: { type: string, default: 'Parametry' }
-      pedestalPerM2Board: { type: number, default: 2.5,  minimum: 0,    title: 'Terče na m² (prkna)',   unit: 'ks/m²' }
-      pedestalPerM2Tile:  { type: number, default: 3.0,  minimum: 0,    title: 'Terče na m² (dlažba)',  unit: 'ks/m²' }
-      clipPerM2:          { type: number, default: 20,   minimum: 0,    title: 'Spony na m² (WPC)',     unit: 'ks/m²' }
-      clipPerPack:        { type: number, default: 100,  minimum: 1,    title: 'Spon v balení',         unit: 'ks' }
-      screwPerM2:         { type: number, default: 25,   minimum: 0,    title: 'Vruty na m² (dřevo)',   unit: 'ks/m²' }
-      screwPerPack:       { type: number, default: 250,  minimum: 1,    title: 'Vrutů v balení',        unit: 'ks' }
-      geotexOverlapPct:   { type: number, default: 5,    minimum: 0,    title: 'Přesah geotextilie',    unit: '%' }
-      tileArea:           { type: number, default: 0.36, minimum: 0.01, title: 'Krycí plocha dlaždice', unit: 'm²' }
-      stockLength:        { type: number, default: 4.0,  minimum: 0.5,  title: 'Délka nosníku/prkna',   unit: 'm' }
-
 # =============================================================================
-# Lifecycle — idempotentní seed ceníku a parametrů
+# Lifecycle — idempotentní seed ukázkových variant
+# Ceník i parametry jsou nově součástí varianty (TerraceConfig) a jejich výchozí
+# hodnoty drží schéma + fallbacky v compute.constants/priceOf, takže se neseedují.
 # =============================================================================
 lifecycle:
   initialized:
     body: |
       var pid = this.project.id;
-
-      // --- Ceník (jeden singleton řádek na projekt; idempotentní) ----------
-      var priceRows = this.models.terrace_prices.all.value;
-      var hasPrices = false;
-      for (var i = 0; i < priceRows.length; i++) {
-        if (priceRows[i].project_id === pid) { hasPrices = true; break; }
-      }
-      if (!hasPrices) {
-        this.models.terrace_prices.save({
-          project_id: pid, name: 'Ceník',
-          priceWpcAntracit: 857, priceWpcHneda: 857, priceWpcSeda: 857,
-          priceLarch: 649, priceTile: 690,
-          priceSubAlu: 329, priceSubWpc: 189, priceSubWood: 145, pricePedestal: 42,
-          pricePedHigh: 85, priceGeotex: 25,
-          priceClip: 480, priceScrew: 320, priceTrimWpc: 185, priceTrimWood: 95,
-          priceInstall: 450
-        });
-      }
-
-      // --- Parametry kalkulace (singleton řádek na projekt; idempotentní) --
-      var paramRows = this.models.terrace_params.all.value;
-      var hasParams = false;
-      for (var pi = 0; pi < paramRows.length; pi++) {
-        if (paramRows[pi].project_id === pid) { hasParams = true; break; }
-      }
-      if (!hasParams) {
-        this.models.terrace_params.save({
-          project_id: pid, name: 'Parametry',
-          pedestalPerM2Board: 2.5, pedestalPerM2Tile: 3.0,
-          clipPerM2: 20, clipPerPack: 100, screwPerM2: 25, screwPerPack: 250,
-          geotexOverlapPct: 5, tileArea: 0.36, stockLength: 4.0
-        });
-      }
 
       // --- Ukázková data (idempotentní dle existence varianty) ------------
       // Navázáno na geometrii nasazenou přes estoflow_seed_geometry.
@@ -593,15 +547,14 @@ computations:
       }
       return 0;
 
-  # Konstanty výkazu výměr — jediný zdroj pravdy pro odhadové koeficienty, které
-  # se jinak opakují v kusovníku, výkazu výměr i cenové nabídce. Čte editovatelný
-  # singleton terrace_params (kalkulátor „Parametry"); chybějící hodnota → výchozí.
-  # DPH (vatRate) zůstává natvrdo. Volá se compute.constants(models, instance).
+  # Konstanty výkazu výměr — odhadové koeficienty spotřeby materiálu. Čte je
+  # přímo z varianty (TerraceConfig), kde jsou parametry editovatelné v kroku
+  # „Parametry"; chybějící hodnota → výchozí. DPH (vatRate) zůstává natvrdo.
+  # Volá se compute.constants(instance).
   constants:
-    params: [models, instance]
+    params: [instance]
     body: |
-      var pid = instance ? instance.project_id : null;
-      var p = ((models && models.terrace_params) || []).filter(function (r) { return r.project_id === pid; })[0] || {};
+      var p = instance || {};
       function pos(v, d) { return (v != null && v > 0) ? v : d; }       // pro dělitele (musí být > 0)
       function nn(v, d) { return (v != null && v >= 0) ? v : d; }       // pro nezáporné spotřeby
       return {
@@ -672,8 +625,8 @@ computations:
       if (edgeTrimSides === 'one') return 0.25;
       return 1;
 
-  # Metadata ceníku — mapování pole singletonu terrace_prices → sku/název/j.m./
-  # kategorie. Jediný zdroj pravdy pro názvy položek v kusovníku i nabídce.
+  # Metadata ceníku — mapování cenového pole varianty (priceXxx) → sku/název/
+  # j.m./kategorie. Jediný zdroj pravdy pro názvy položek v kusovníku i nabídce.
   priceMeta:
     params: []
     body: |
@@ -696,8 +649,8 @@ computations:
         { field: 'priceInstall',     sku: 'SRV-INSTALL', category: 'Služby', name: 'Montáž terasy vč. podkonstrukce', unit: 'm²', def: 450 }
       ];
 
-  # Vyhledání ceny v singletonu — odolné (chybějící SKU nehodí výjimku).
-  # prices = řádek terrace_prices; meta = výstup priceMeta().
+  # Vyhledání ceny — odolné (chybějící SKU nehodí výjimku).
+  # prices = varianta TerraceConfig (drží pole priceXxx); meta = výstup priceMeta().
   priceOf:
     params: [meta, prices, sku]
     body: |
@@ -1089,6 +1042,14 @@ calculators:
         - id: sluzby
           label: Služby
           fields: [edgeTrim, edgeTrimSides, includeInstallation]
+        - id: cenik
+          label: Ceník
+          description: Ceny položek pro tuto variantu — čte je kusovník i cenová nabídka. Výchozí = standardní ceník.
+          fields: [priceWpcAntracit, priceWpcHneda, priceWpcSeda, priceLarch, priceTile, priceSubAlu, priceSubWpc, priceSubWood, pricePedestal, pricePedHigh, priceGeotex, priceClip, priceScrew, priceTrimWpc, priceTrimWood, priceInstall]
+        - id: parametry
+          label: Parametry
+          description: Odhadové konstanty spotřeby materiálu na m², velikosti balení a krycí rozměry.
+          fields: [pedestalPerM2Board, pedestalPerM2Tile, stockLength, geotexOverlapPct, clipPerM2, clipPerPack, screwPerM2, screwPerPack, tileArea]
       rules:
         - { field: boardColor,       showWhen: { material: wpc } }
         - { field: boardWidth,       hideWhen: { material: tile } }
@@ -1101,145 +1062,11 @@ calculators:
         - { field: edgeTrimSides,    showWhen: { edgeTrim: true } }
     outputs: [bom, takeoff, warnings]
 
-  # --- Editor ceníku — každá položka (SKU) = jedna instance, cena editovatelná.
-  #     sku je readOnly (řídí párování s výpočty). Změny se přes catalog param
-  #     ihned promítnou do kusovníku i cenové nabídky.
-  cenik:
-    label: Ceník
-    icon: o_sell
-    inputModel: terrace_prices
-    instanceNoun: Sada cen
-    description: Ceny položek pro kusovník a cenovou nabídku — seskupené po kategoriích.
-    allowDuplicate: false
-    form:
-      uiSchema:
-        type: VerticalLayout
-        elements:
-          - type: Group
-            label: Povrch
-            elements:
-              - { type: Control, scope: '#/properties/priceWpcAntracit' }
-              - { type: Control, scope: '#/properties/priceWpcHneda' }
-              - { type: Control, scope: '#/properties/priceWpcSeda' }
-              - { type: Control, scope: '#/properties/priceLarch' }
-              - { type: Control, scope: '#/properties/priceTile' }
-          - type: Group
-            label: Podkonstrukce
-            elements:
-              - { type: Control, scope: '#/properties/priceSubAlu' }
-              - { type: Control, scope: '#/properties/priceSubWpc' }
-              - { type: Control, scope: '#/properties/priceSubWood' }
-              - { type: Control, scope: '#/properties/pricePedestal' }
-              - { type: Control, scope: '#/properties/pricePedHigh' }
-              - { type: Control, scope: '#/properties/priceGeotex' }
-          - type: Group
-            label: Spojovací materiál
-            elements:
-              - { type: Control, scope: '#/properties/priceClip' }
-              - { type: Control, scope: '#/properties/priceScrew' }
-          - type: Group
-            label: Lišty
-            elements:
-              - { type: Control, scope: '#/properties/priceTrimWpc' }
-              - { type: Control, scope: '#/properties/priceTrimWood' }
-          - type: Group
-            label: Služby
-            elements:
-              - { type: Control, scope: '#/properties/priceInstall' }
-    outputs: [cenik-prehled]
-
-  # --- Editor parametrů kalkulace — odhadové konstanty spotřeby materiálu.
-  #     Singleton; změny se přes compute.constants() ihned promítnou do
-  #     kusovníku, výkazu výměr i cenové nabídky.
-  parametry:
-    label: Parametry
-    icon: o_tune
-    inputModel: terrace_params
-    instanceNoun: Sada parametrů
-    description: Spotřeba materiálu na m², velikosti balení a krycí rozměry — pro kusovník i nabídku.
-    allowDuplicate: false
-    form:
-      uiSchema:
-        type: VerticalLayout
-        elements:
-          - type: Group
-            label: Podkonstrukce
-            elements:
-              - { type: Control, scope: '#/properties/pedestalPerM2Board' }
-              - { type: Control, scope: '#/properties/pedestalPerM2Tile' }
-              - { type: Control, scope: '#/properties/stockLength' }
-              - { type: Control, scope: '#/properties/geotexOverlapPct' }
-          - type: Group
-            label: Spojovací materiál
-            elements:
-              - { type: Control, scope: '#/properties/clipPerM2' }
-              - { type: Control, scope: '#/properties/clipPerPack' }
-              - { type: Control, scope: '#/properties/screwPerM2' }
-              - { type: Control, scope: '#/properties/screwPerPack' }
-          - type: Group
-            label: Povrch
-            elements:
-              - { type: Control, scope: '#/properties/tileArea' }
-    outputs: [parametry-prehled]
-
 # =============================================================================
-# Aggregations — signatura (models, instance, compute). Ceny se čtou
-# z editovatelného singletonu terrace_prices (models.terrace_prices) přes priceOf, ne přes
-# zrušený catalog param — viz kalkulátor „Ceník".
+# Aggregations — signatura (models, instance, compute). Ceny i parametry se
+# čtou přímo z varianty (instance) přes priceOf / compute.constants(instance).
 # =============================================================================
 aggregations:
-
-  # --- Přehled celého ceníku — pro editor cen (čte všechny řádky z catalog) --
-  cenikPrehled:
-    params: [models, instance, compute]
-    body: |
-      var prices = instance || {};
-      var meta = compute.priceMeta();
-      var rows = [];
-      for (var i = 0; i < meta.length; i++) {
-        var m = meta[i];
-        rows.push({ category: m.category, name: m.name, unit: m.unit,
-                    unitPrice: (prices[m.field] != null ? prices[m.field] : m.def) });
-      }
-      return {
-        columns: [
-          { key: 'name',      label: 'Položka' },
-          { key: 'unit',      label: 'J.m.' },
-          { key: 'unitPrice', label: 'Cena za j.', align: 'right', format: 'currency' }
-        ],
-        rows: rows,
-        metrics: {
-          itemCount: { value: rows.length, label: 'Počet položek ceníku', unit: 'ks' }
-        }
-      };
-
-  # --- Přehled parametrů kalkulace — čte hodnoty přes compute.constants() ----
-  paramsPrehled:
-    params: [models, instance, compute]
-    body: |
-      var k = compute.constants(models, instance);
-      var rows = [
-        { category: 'Podkonstrukce',       name: 'Terče na m² (prkna)',   value: k.pedestalPerM2Board, unit: 'ks/m²' },
-        { category: 'Podkonstrukce',       name: 'Terče na m² (dlažba)',  value: k.pedestalPerM2Tile,  unit: 'ks/m²' },
-        { category: 'Podkonstrukce',       name: 'Délka nosníku/prkna',   value: k.stockLength,        unit: 'm' },
-        { category: 'Podkonstrukce',       name: 'Přesah geotextilie',    value: Math.round((k.geotexOverlap - 1) * 100), unit: '%' },
-        { category: 'Spojovací materiál',  name: 'Spony na m² (WPC)',     value: k.clipPerM2,          unit: 'ks/m²' },
-        { category: 'Spojovací materiál',  name: 'Spon v balení',         value: k.clipPerPack,        unit: 'ks' },
-        { category: 'Spojovací materiál',  name: 'Vruty na m² (dřevo)',   value: k.screwPerM2,         unit: 'ks/m²' },
-        { category: 'Spojovací materiál',  name: 'Vrutů v balení',        value: k.screwPerPack,       unit: 'ks' },
-        { category: 'Povrch',              name: 'Krycí plocha dlaždice', value: k.tileArea,           unit: 'm²' }
-      ];
-      return {
-        columns: [
-          { key: 'name',  label: 'Parametr' },
-          { key: 'value', label: 'Hodnota', align: 'right', format: 'number' },
-          { key: 'unit',  label: 'J.m.' }
-        ],
-        rows: rows,
-        metrics: {
-          itemCount: { value: rows.length, label: 'Počet parametrů', unit: '' }
-        }
-      };
 
   # --- Kusovník — kategorizovaný, oceněný -----------------------------------
   terraceBOM:
@@ -1248,7 +1075,7 @@ aggregations:
       var c = instance;
       if (!c) return { columns: [], groups: [], footer: [], metrics: {} };
 
-      var prices = (models.terrace_prices || []).filter(function (r) { return r.project_id === c.project_id; })[0] || {};
+      var prices = c;   // ceny jsou pole varianty (priceXxx)
       var meta = compute.priceMeta();
       var meas = compute.measuredNet(models, c);
       var grossA = (c.deckGrossArea || 0) > 0 ? c.deckGrossArea : meas.gross;
@@ -1256,7 +1083,7 @@ aggregations:
       var perimA = (c.deckPerimeter || 0) > 0 ? c.deckPerimeter : meas.perim;
       var net = Math.max(0, grossA - holesA);
 
-      var k = compute.constants(models, c);
+      var k = compute.constants(c);
       var isTile = (c.material === 'tile');
       var isWpc  = (c.material === 'wpc');
       var bw = c.boardWidth || 140;
@@ -1369,7 +1196,7 @@ aggregations:
       var holes = (c.obstaclesArea || 0) > 0 ? c.obstaclesArea : meas.holes;
       var perim = (c.deckPerimeter || 0) > 0 ? c.deckPerimeter : meas.perim;
       var net = Math.max(0, gross - holes);
-      var k = compute.constants(models, c);
+      var k = compute.constants(c);
       var isTile = (c.material === 'tile');
       var bw = c.boardWidth || 140;
       var bl = c.boardMaxLength || 4000;
@@ -1527,22 +1354,6 @@ aggregations:
 # Views
 # =============================================================================
 views:
-
-  - id: cenik-prehled
-    label: Přehled ceníku
-    icon: o_sell
-    aggregation: cenikPrehled
-    layout:
-      - { type: metrics, source: cenikPrehled.metrics }
-      - { type: table,   source: cenikPrehled, groupBy: category }
-
-  - id: parametry-prehled
-    label: Přehled parametrů
-    icon: o_tune
-    aggregation: paramsPrehled
-    layout:
-      - { type: metrics, source: paramsPrehled.metrics }
-      - { type: table,   source: paramsPrehled, groupBy: category }
 
   - id: bom
     label: Kusovník
@@ -1705,7 +1516,6 @@ panels:
       var configs = (models.TerraceConfig || []).filter(function (r) { return r.project_id === pid; });
       var surfaces = (models.TerraceSurface || []).filter(function (r) { return r.project_id === pid; });
       var obstacles = (models.TerraceObstacle || []).filter(function (r) { return r.project_id === pid; });
-      var prices = (models.terrace_prices || []).filter(function (r) { return r.project_id === pid; })[0] || {};
       var meta = compute.priceMeta();
 
       var now = new Date();
@@ -1721,7 +1531,7 @@ panels:
                  projectName: (project && project.name) || 'Projekt' };
       }
 
-      function priceOf(sku) { return compute.priceOf(meta, prices, sku); }
+      function priceOf(sku) { return compute.priceOf(meta, c, sku); }   // ceny z varianty
 
       // Měřené hodnoty z výkresu — počítáno přímo z geometrie (v panelu se
       // na řádcích modelu nevyhodnocují derivace, proto přes geo + compute).
@@ -1752,7 +1562,7 @@ panels:
       var perim = (c.deckPerimeter || 0) > 0 ? c.deckPerimeter : measPerim;
       var net = Math.max(0, gross - holes);
 
-      var k = compute.constants(models, c);
+      var k = compute.constants(c);
       var isTile = (c.material === 'tile');
       var isWpc = (c.material === 'wpc');
       var bw = c.boardWidth || 140;
