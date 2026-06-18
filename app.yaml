@@ -489,13 +489,25 @@ computations:
       }
       return 0;
 
-  # Koeficient odpadu dle směru pokládky (fallback / dlažba).
-  wasteFactor:
-    params: [direction]
+  # Konstanty výkazu výměr — jediný zdroj pravdy pro odhadové koeficienty, které
+  # se jinak opakují v kusovníku, výkazu výměr i cenové nabídce. Čteno přes
+  # compute.constants() (stejný vzor jako priceMeta). Připraveno na pozdější
+  # zveřejnění jako editovatelné „Parametry kalkulace".
+  constants:
+    params: []
     body: |
-      if (direction === 'diagonal') return 1.18;
-      if (direction === 'napric') return 1.07;
-      return 1.05;
+      return {
+        vatRate: 0.21,            // sazba DPH
+        tileArea: 0.36,           // m², krycí plocha dlaždice 60×60
+        stockLength: 4.0,         // m, standardní délka nosníku/prkna
+        pedestalPerM2Tile: 3.0,   // terče/m² pod dlažbu (rošt rohů dlaždic)
+        pedestalPerM2Board: 2.5,  // terče/m² pod prkna
+        clipPerM2: 20,            // nerez spony/m² (WPC)
+        clipPerPack: 100,         // spon v balení
+        screwPerM2: 25,           // nerez vruty/m² (dřevo)
+        screwPerPack: 250,        // vrutů v balení
+        geotexOverlap: 1.05       // přesah geotextilie (5 %)
+      };
 
   # Nářez prken — rozpis přes krycí běžné metry (robustní pro libovolný tvar
   # i více ploch; nezávislé na rekonstrukci obdélníku z plochy a obvodu).
@@ -1074,6 +1086,7 @@ aggregations:
       var perimA = (c.deckPerimeter || 0) > 0 ? c.deckPerimeter : meas.perim;
       var net = Math.max(0, grossA - holesA);
 
+      var k = compute.constants();
       var isTile = (c.material === 'tile');
       var isWpc  = (c.material === 'wpc');
       var bw = c.boardWidth || 140;
@@ -1084,7 +1097,7 @@ aggregations:
       var layout = null;
       if (isTile) {
         coverArea = net * compute.tileWasteFactor(c.tilePattern);
-        unitCount = Math.ceil(coverArea / 0.36);                  // 60×60 dlaždice
+        unitCount = Math.ceil(coverArea / k.tileArea);            // 60×60 dlaždice
         unitLabel = 'Počet dlaždic';
       } else {
         layout = compute.boardLayout(net, bw, bl, c.layingDirection, c.boardGap);
@@ -1099,7 +1112,7 @@ aggregations:
       // Podklad zemina/štěrk → geotextilie proti plevelu (5 % přesah).
       var isSoil = (c.substructureBase === 'soil');
       var geotex = compute.priceOf(meta, prices, 'GEOTEX');
-      var geotexQty = isSoil ? Math.ceil(net * 1.05) : 0;
+      var geotexQty = isSoil ? Math.ceil(net * k.geotexOverlap) : 0;
 
       var total = 0;
       function line(item, qty, unit, unitPrice) {
@@ -1116,7 +1129,7 @@ aggregations:
 
       if (isTile) {
         // Dlažba na rektifikačních terčích — bez nosníků, spon a lišt.
-        var pedCountT = Math.ceil(net * 3.0);          // ~3 terče/m² (rošt rohů dlaždic)
+        var pedCountT = Math.ceil(net * k.pedestalPerM2Tile);   // ~3 terče/m² (rošt rohů dlaždic)
         var subRowsT = [ line(ped.name, pedCountT, 'ks', ped.unitPrice) ];
         if (geotexQty > 0) subRowsT.push(line(geotex.name, geotexQty, 'm²', geotex.unitPrice));
         groups.push({ label: 'Podkonstrukce', rows: subRowsT, subtotal: { label: 'Podkonstrukce', value: sum(subRowsT), format: 'currency' } });
@@ -1126,9 +1139,9 @@ aggregations:
         var fast  = compute.priceOf(meta, prices,isWpc ? 'FAST-CLIP-100' : 'FAST-SCREW-250');
         var trim  = compute.priceOf(meta, prices,isWpc ? 'TRIM-WPC' : 'TRIM-WOOD');
         var spacingM = (c.joistSpacing || 500) / 1000;
-        var joistPcs = Math.ceil((spacingM > 0 ? net / spacingM : 0) / 4.0);
-        var pedCount = Math.ceil(net * 2.5);
-        var fastPacks = isWpc ? Math.ceil(net * 20 / 100) : Math.ceil(net * 25 / 250);
+        var joistPcs = Math.ceil((spacingM > 0 ? net / spacingM : 0) / k.stockLength);
+        var pedCount = Math.ceil(net * k.pedestalPerM2Board);
+        var fastPacks = isWpc ? Math.ceil(net * k.clipPerM2 / k.clipPerPack) : Math.ceil(net * k.screwPerM2 / k.screwPerPack);
         var trimLen = Math.ceil(perimA * compute.edgeTrimFraction(c.edgeTrim, c.edgeTrimSides));
         var subRows = [
           line(joist.name, joistPcs, 'ks', joist.unitPrice),
@@ -1150,7 +1163,7 @@ aggregations:
         groups.push({ label: 'Služby', rows: srvRows, subtotal: { label: 'Služby', value: sum(srvRows), format: 'currency' } });
       }
 
-      var vat = total * 0.21;
+      var vat = total * k.vatRate;
       var withVat = total + vat;
 
       return {
@@ -1163,7 +1176,7 @@ aggregations:
         groups: groups,
         footer: [
           { label: 'Mezisoučet bez DPH', value: total,   format: 'currency' },
-          { label: 'DPH 21 %',           value: vat,     format: 'currency' },
+          { label: 'DPH ' + Math.round(k.vatRate * 100) + ' %', value: vat, format: 'currency' },
           { label: 'Celkem s DPH',       value: withVat, format: 'currency' }
         ],
         metrics: {
@@ -1186,6 +1199,7 @@ aggregations:
       var holes = (c.obstaclesArea || 0) > 0 ? c.obstaclesArea : meas.holes;
       var perim = (c.deckPerimeter || 0) > 0 ? c.deckPerimeter : meas.perim;
       var net = Math.max(0, gross - holes);
+      var k = compute.constants();
       var isTile = (c.material === 'tile');
       var bw = c.boardWidth || 140;
       var bl = c.boardMaxLength || 4000;
@@ -1194,14 +1208,14 @@ aggregations:
       var wastePct = isTile ? (compute.tileWasteFactor(c.tilePattern) - 1) : layout.wastePct;
       var spacingM = (c.joistSpacing || 500) / 1000;
       var joistLm = spacingM > 0 ? net / spacingM : 0;
-      var pedCount = Math.ceil(net * (isTile ? 3.0 : 2.5));
+      var pedCount = Math.ceil(net * (isTile ? k.pedestalPerM2Tile : k.pedestalPerM2Board));
 
       // Podkonstrukce: dlažba → terče; prkna → nosníky + terče. Výška nad
       // terénem volí typ terče, podklad zemina/štěrk přidá geotextilii.
       var pedLabel = (c.installHeight || 0) > 6
         ? 'Rektifikační terče vysoké (' + (c.installHeight || 0) + ' cm)'
         : 'Rektifikační terče';
-      var geotexQty = (c.substructureBase === 'soil') ? Math.ceil(net * 1.05) : 0;
+      var geotexQty = (c.substructureBase === 'soil') ? Math.ceil(net * k.geotexOverlap) : 0;
       var subRows = [ { item: 'Obvod terasy', value: Math.round(perim * 10) / 10, unit: 'm' } ];
       if (isTile) {
         subRows.push({ item: pedLabel, value: pedCount, unit: 'ks' });
@@ -1577,7 +1591,7 @@ panels:
 
         <div class="tp-totals">
           <div class="row"><span>Mezisoučet bez DPH</span><span>{{ subtotal | round(0) }} Kč</span></div>
-          <div class="row"><span>DPH 21 %</span><span>{{ vat | round(0) }} Kč</span></div>
+          <div class="row"><span>DPH {{ vatPct }} %</span><span>{{ vat | round(0) }} Kč</span></div>
           <div class="row grand"><span>Celkem s DPH</span><span>{{ total | round(0) }} Kč</span></div>
         </div>
 
@@ -1615,13 +1629,6 @@ panels:
       }
 
       function priceOf(sku) { return compute.priceOf(meta, prices, sku); }
-      function deckSku(mat, col) {
-        if (mat === 'tile') return 'DECK-TILE-GREY';
-        if (mat === 'larch') return 'DECK-LARCH';
-        if (col === 'hneda') return 'DECK-WPC-HNEDA';
-        if (col === 'seda') return 'DECK-WPC-SEDA';
-        return 'DECK-WPC-ANTRACIT';
-      }
 
       // Měřené hodnoty z výkresu — počítáno přímo z geometrie (v panelu se
       // na řádcích modelu nevyhodnocují derivace, proto přes geo + compute).
@@ -1639,8 +1646,8 @@ panels:
         if (og) measHoles += compute.geometryArea(og) / (1000 * 1000);
       }
       var measPerim = 0;
-      for (var k = 0; k < surfaces.length; k++) {
-        var pIds = surfaces[k].regionGeometryIds || [];
+      for (var sk = 0; sk < surfaces.length; sk++) {
+        var pIds = surfaces[sk].regionGeometryIds || [];
         for (var pi = 0; pi < pIds.length; pi++) {
           var pg = geo(pIds[pi]);
           if (pg) measPerim += compute.geometryPerimeter(pg) / 1000;
@@ -1652,6 +1659,7 @@ panels:
       var perim = (c.deckPerimeter || 0) > 0 ? c.deckPerimeter : measPerim;
       var net = Math.max(0, gross - holes);
 
+      var k = compute.constants();
       var isTile = (c.material === 'tile');
       var isWpc = (c.material === 'wpc');
       var bw = c.boardWidth || 140;
@@ -1660,19 +1668,19 @@ panels:
       var deckArea, boardCount;
       if (isTile) {
         deckArea = net * compute.tileWasteFactor(c.tilePattern);
-        boardCount = Math.ceil(deckArea / 0.36);
+        boardCount = Math.ceil(deckArea / k.tileArea);
       } else {
         var layout = compute.boardLayout(net, bw, bl, c.layingDirection, c.boardGap);
         deckArea = layout.coverArea;
         boardCount = layout.totalBoards;
       }
 
-      var deck = priceOf(deckSku(c.material, c.boardColor));
+      var deck = priceOf(compute.deckBoardSku(c.material, c.boardColor));
       var ped = priceOf(compute.pedestalSku(c.installHeight));
       var instal = priceOf('SRV-INSTALL');
       var isSoil = (c.substructureBase === 'soil');
       var geotex = priceOf('GEOTEX');
-      var geotexQty = isSoil ? Math.ceil(net * 1.05) : 0;
+      var geotexQty = isSoil ? Math.ceil(net * k.geotexOverlap) : 0;
 
       var bidLines = [];
       var subtotal = 0;
@@ -1684,25 +1692,24 @@ panels:
       }
       line(deck.name, Math.round(deckArea * 10) / 10, 'm²', deck.unitPrice);
       if (isTile) {
-        line(ped.name, Math.ceil(net * 3.0), 'ks', ped.unitPrice);
+        line(ped.name, Math.ceil(net * k.pedestalPerM2Tile), 'ks', ped.unitPrice);
       } else {
-        var joist = priceOf(c.substructureType === 'wpc' ? 'SUB-WPC-4M'
-                          : (c.substructureType === 'wood' ? 'SUB-WOOD-4M' : 'SUB-ALU-4M'));
+        var joist = priceOf(compute.joistSku(c.substructureType));
         var fast = priceOf(isWpc ? 'FAST-CLIP-100' : 'FAST-SCREW-250');
         var trim = priceOf(isWpc ? 'TRIM-WPC' : 'TRIM-WOOD');
         var spacingM = (c.joistSpacing || 500) / 1000;
-        var joistPcs = Math.ceil((spacingM > 0 ? net / spacingM : 0) / 4.0);
-        var fastPacks = isWpc ? Math.ceil(net * 20 / 100) : Math.ceil(net * 25 / 250);
+        var joistPcs = Math.ceil((spacingM > 0 ? net / spacingM : 0) / k.stockLength);
+        var fastPacks = isWpc ? Math.ceil(net * k.clipPerM2 / k.clipPerPack) : Math.ceil(net * k.screwPerM2 / k.screwPerPack);
         var trimLen = Math.ceil(perim * compute.edgeTrimFraction(c.edgeTrim, c.edgeTrimSides));
         line(joist.name, joistPcs, 'ks', joist.unitPrice);
-        line(ped.name, Math.ceil(net * 2.5), 'ks', ped.unitPrice);
+        line(ped.name, Math.ceil(net * k.pedestalPerM2Board), 'ks', ped.unitPrice);
         line(fast.name, fastPacks, 'bal', fast.unitPrice);
         if (trimLen > 0) line(trim.name, trimLen, 'bm', trim.unitPrice);
       }
       if (geotexQty > 0) line(geotex.name, geotexQty, 'm²', geotex.unitPrice);
       if (c.includeInstallation) line(instal.name, Math.round(net * 10) / 10, 'm²', instal.unitPrice);
 
-      var vat = subtotal * 0.21;
+      var vat = subtotal * k.vatRate;
       var total = subtotal + vat;
       var materialLabel = isTile ? 'Betonová dlažba' : (isWpc ? 'WPC kompozit' : 'Sibiřský modřín');
 
@@ -1719,5 +1726,6 @@ panels:
         bidLines: bidLines,
         subtotal: subtotal,
         vat: vat,
+        vatPct: Math.round(k.vatRate * 100),
         total: total
       };
