@@ -670,7 +670,11 @@ computations:
         sw:     isTile ? 1.2 : 1,
         areaM2: areaPx / (1000 * 1000),
         lines:  [],
-        holes:  []
+        holes:  [],
+        joists: [],
+        pedestals: [],
+        joistColor: '#8b939c',
+        joistW: 36
       };
       // Výřezy (bazén apod.) — odečtou se z masky, aby přes ně vzor nešel.
       var obs = (models.TerraceObstacle || []).filter(function (o) { return o.project_id === pid; });
@@ -688,6 +692,45 @@ computations:
       var tilePattern = (surface && surface.tilePattern) || (c ? c.tilePattern : null) || 'rovny';
       var pitch = isTile ? 600 : (bw + gap);     // dlaždice 60 cm; prkno bw + dilatační mezera
       var bl = (surface && surface.boardMaxLength) || (c ? c.boardMaxLength : 0) || 4000;   // max. délka prkna (mm = px)
+
+      // --- Podkonstrukce pod povrchem (nosníky + rektifikační terče) --------
+      // Nosníky běží KOLMO na prkna v rozteči joistSpacing a nesou je terče
+      // v pravidelné mřížce. U dlažby je nosný rošt nahrazen mřížkou terčů
+      // (dlaždice leží přímo na terčích). Generuje se přes obálku plochy,
+      // v šabloně se to ořezává stejnou maskou jako vzor povrchu.
+      var subType = (c ? c.substructureType : null) || 'alu';
+      var js = (c ? c.joistSpacing : 0) || 500;                 // rozteč nosníků (mm)
+      out.joistColor = subType === 'wood' ? '#7a5230'
+                     : (subType === 'wpc' ? '#5f6b5a' : '#8b939c');
+      out.joistW = Math.max(30, Math.min(60, js / 14));         // pohledová šířka nosníku (mm)
+      var pedPitch = 900;                                       // rozteč terčů podél nosníku (mm)
+      var scap = 600;                                           // strop počtu prvků
+      if (isTile) {
+        for (var ty = minY + pitch / 2; ty < maxY && out.pedestals.length < scap; ty += pitch) {
+          for (var tx = minX + pitch / 2; tx < maxX && out.pedestals.length < scap; tx += pitch) {
+            out.pedestals.push({ cx: tx, cy: ty });
+          }
+        }
+      } else if (dir !== 'napric') {        // prkna podél / diagonálně → nosníky svislé
+        for (var jx = minX + js / 2; jx < maxX && out.joists.length < scap; jx += js) {
+          out.joists.push({ x1: jx, y1: minY, x2: jx, y2: maxY });
+        }
+        for (var py = minY + pedPitch / 2; py < maxY && out.pedestals.length < scap; py += pedPitch) {
+          for (var jx2 = minX + js / 2; jx2 < maxX && out.pedestals.length < scap; jx2 += js) {
+            out.pedestals.push({ cx: jx2, cy: py });
+          }
+        }
+      } else {                              // prkna napříč → nosníky vodorovné
+        for (var jy = minY + js / 2; jy < maxY && out.joists.length < scap; jy += js) {
+          out.joists.push({ x1: minX, y1: jy, x2: maxX, y2: jy });
+        }
+        for (var px = minX + pedPitch / 2; px < maxX && out.pedestals.length < scap; px += pedPitch) {
+          for (var jy2 = minY + js / 2; jy2 < maxY && out.pedestals.length < scap; jy2 += js) {
+            out.pedestals.push({ cx: px, cy: jy2 });
+          }
+        }
+      }
+
       var lines = out.lines;
       var cap = 1000;
       function vlines() { for (var x = minX + pitch; x < maxX - 1 && lines.length < cap; x += pitch) lines.push({ x1: x, y1: minY, x2: x, y2: maxY }); }
@@ -832,6 +875,19 @@ tools:
                  vector-effect="non-scaling-stroke" />
         {% endif %}
         {% endfor %}
+
+        {# Podkonstrukce — nosníky a terče „prosvítají" pod povrchem #}
+        <g mask="url(#{{ maskId }})" opacity="0.4">
+          {% for j in viz.joists %}
+          <line x1="{{ j.x1 }}" y1="{{ j.y1 }}" x2="{{ j.x2 }}" y2="{{ j.y2 }}"
+                stroke="{{ viz.joistColor }}" stroke-width="{{ viz.joistW }}"
+                stroke-linecap="butt" />
+          {% endfor %}
+          {% for p in viz.pedestals %}
+          <circle cx="{{ p.cx }}" cy="{{ p.cy }}" r="{{ viz.joistW }}"
+                  fill="{{ viz.joistColor }}" />
+          {% endfor %}
+        </g>
 
         <g mask="url(#{{ maskId }})">
           {% for ln in viz.lines %}
