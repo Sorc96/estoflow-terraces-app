@@ -3,8 +3,7 @@
 # -----------------------------------------------------------------------------
 # Material-agnostický kalkulátor terasy: uživatel zakreslí plochu terasy
 # (a případné výřezy) na výkres, zvolí materiál a parametry pokládky a dostane
-# kompletní kusovník včetně podkonstrukce, srovnání životních nákladů (TCO)
-# a brandovanou cenovou nabídku.
+# kompletní kusovník včetně podkonstrukce a brandovanou cenovou nabídku.
 #
 # Firemní identita v panelu (TerasProfi s.r.o. / PlanTeras.cz) je FIKTIVNÍ
 # placeholder — snadno přepsatelný.
@@ -15,8 +14,8 @@
 #           terrace_prices — ceník (singleton, editovatelný v kalkulátoru „Ceník"), seedovaný v lifecycle
 # Nástroje: terrace-surface, terrace-obstacle
 # Kalkulátor: terrace — 4 kroky (Materiál · Rozměry · Podkonstrukce · Služby)
-# Agregace: terraceBOM (kusovník), terraceTakeoff (výkaz výměr), terraceTCO (životní náklady)
-# Pohledy:  bom, takeoff, tco
+# Agregace: terraceBOM (kusovník), terraceTakeoff (výkaz výměr)
+# Pohledy:  bom, takeoff
 # Panel:    quote — cenová nabídka TerasProfi s.r.o.
 # =============================================================================
 
@@ -47,31 +46,22 @@ models:
       material:
         type: string
         default: wpc
-        enum: [wpc, larch, tile]
+        format: entity-select
+        x-options-resolver: resolveCfgMaterial
         title: Materiál povrchu
-        x-options:
-          wpc:   { label: 'WPC kompozit — bezúdržbový' }
-          larch: { label: 'Sibiřský modřín — přírodní dřevo' }
-          tile:  { label: 'Betonová dlažba 60×60 — na terče' }
       boardColor:
         type: string
         default: antracit
-        enum: [antracit, hneda, seda]
+        format: entity-select
+        x-options-resolver: resolveBoardColor
         title: Barva (WPC)
-        x-options:
-          antracit: { label: 'Antracit' }
-          hneda:    { label: 'Hnědá / teak' }
-          seda:     { label: 'Šedá' }
       layingDirection:
         type: string
         default: podel
-        enum: [podel, napric, diagonal]
+        format: entity-select
+        x-options-resolver: resolveCfgLayingDirection
         title: Směr pokládky
         description: Diagonální pokládka zvyšuje odpad materiálu.
-        x-options:
-          podel:    { label: 'Podél (odpad ~5 %)' }
-          napric:   { label: 'Napříč (odpad ~7 %)' }
-          diagonal: { label: 'Diagonálně 45° (odpad ~18 %)' }
       boardWidth:
         type: number
         default: 140
@@ -91,20 +81,16 @@ models:
         default: 5
         minimum: 4
         maximum: 8
-        title: Dilatační mezera mezi deskami
+        title: Dilatační mezera mezi prkny
         description: Spára mezi prkny (4–8 mm). Větší mezera = méně prken, ale širší spáry.
         unit: mm
       tilePattern:
         type: string
         default: rovny
-        enum: [rovny, polovazba, rybikost, diag45]
+        format: entity-select
+        x-options-resolver: resolveCfgTilePattern
         title: Vzor dlažby
         description: Vzor pokládky dlaždic — složitější vzory zvyšují odpad z řezání.
-        x-options:
-          rovny:    { label: 'Rovná vazba (odpad ~5 %)' }
-          polovazba: { label: 'Poloviční vazba (odpad ~8 %)' }
-          rybikost: { label: 'Rybí kost (odpad ~15 %)' }
-          diag45:   { label: 'Diagonálně 45° (odpad ~15 %)' }
 
       # -- Krok 2 · Rozměry (měřeno z výkresu, editovatelné) -----------------
       deckGrossArea:
@@ -154,12 +140,9 @@ models:
       substructureType:
         type: string
         default: alu
-        enum: [alu, wpc, wood]
+        format: entity-select
+        x-options-resolver: resolveSubstructureType
         title: Typ podkladního nosníku
-        x-options:
-          alu:  { label: 'Hliníkový nosník' }
-          wpc:  { label: 'WPC hranol' }
-          wood: { label: 'Dřevěný hranol modřín' }
       joistSpacing:
         type: number
         default: 500
@@ -175,12 +158,9 @@ models:
       substructureBase:
         type: string
         default: concrete
-        enum: [concrete, soil, paving]
+        format: entity-select
+        x-options-resolver: resolveSubstructureBase
         title: Typ podkladu
-        x-options:
-          concrete: { label: 'Betonová deska' }
-          soil:     { label: 'Zemina / štěrk' }
-          paving:   { label: 'Stávající dlažba' }
 
       # -- Krok 4 · Služby ---------------------------------------------------
       edgeTrim:
@@ -190,24 +170,14 @@ models:
       edgeTrimSides:
         type: string
         default: all
-        enum: [all, three, two, one]
+        format: entity-select
+        x-options-resolver: resolveEdgeTrimSides
         title: Rozsah lišt
         description: Které strany obvodu se lemují — terasa u stěny domu lišty na té straně nepotřebuje.
-        x-options:
-          all:   { label: 'Celý obvod' }
-          three: { label: '3 strany (1 u stěny)' }
-          two:   { label: '2 strany (v koutě)' }
-          one:   { label: '1 strana (volná hrana)' }
       includeInstallation:
         type: boolean
         default: false
         title: Montáž na klíč
-      tcoYears:
-        type: number
-        default: 10
-        enum: [5, 10, 20]
-        title: Horizont srovnání nákladů
-        unit: let
 
     # Kompozitní derivace inputModelu — čistá plocha = plochy minus výřezy.
     derivations:
@@ -240,21 +210,15 @@ models:
       material:
         type: string
         default: wpc
-        enum: [wpc, larch, tile]
+        format: entity-select
+        x-options-resolver: resolveSurfMaterial
         title: Materiál povrchu
-        x-options:
-          wpc:   { label: 'WPC kompozit' }
-          larch: { label: 'Sibiřský modřín' }
-          tile:  { label: 'Betonová dlažba 60×60' }
       layingDirection:
         type: string
         default: podel
-        enum: [podel, napric, diagonal]
+        format: entity-select
+        x-options-resolver: resolveSurfLayingDirection
         title: Směr pokládky
-        x-options:
-          podel:    { label: 'Podél' }
-          napric:   { label: 'Napříč' }
-          diagonal: { label: 'Diagonálně 45°' }
       boardWidth:
         type: number
         default: 140
@@ -272,18 +236,14 @@ models:
         default: 5
         minimum: 4
         maximum: 8
-        title: Mezera mezi deskami
+        title: Mezera mezi prkny
         unit: mm
       tilePattern:
         type: string
         default: rovny
-        enum: [rovny, polovazba, rybikost, diag45]
+        format: entity-select
+        x-options-resolver: resolveSurfTilePattern
         title: Vzor dlažby
-        x-options:
-          rovny:    { label: 'Rovná vazba' }
-          polovazba: { label: 'Poloviční vazba' }
-          rybikost: { label: 'Rybí kost' }
-          diag45:   { label: 'Diagonálně 45°' }
 
       regionGeometryIds:
         type: array
@@ -327,13 +287,9 @@ models:
       obstacleType:
         type: string
         default: pool
-        enum: [pool, planter, column, other]
+        format: entity-select
+        x-options-resolver: resolveObstacleType
         title: Typ výřezu
-        x-options:
-          pool:    { label: 'Bazén / jezírko' }
-          planter: { label: 'Truhlík / záhon' }
-          column:  { label: 'Sloup / pilíř' }
-          other:   { label: 'Jiný' }
       drivingGeometryId:
         type: string
         format: geometry
@@ -379,8 +335,29 @@ models:
       priceTrimWood:    { type: number, default: 95,  minimum: 0, title: 'Modřínová krycí lišta',  unit: 'Kč/bm' }
       priceInstall:     { type: number, default: 450, minimum: 0, title: 'Montáž terasy',         unit: 'Kč/m²' }
 
+  # --- Parametry kalkulace (singleton), seedovaný v lifecycle ---------------
+  # Editovatelné odhadové konstanty spotřeby materiálu — čte je compute.constants()
+  # (kusovník, výkaz výměr i cenová nabídka). DPH zůstává natvrdo.
+  terrace_params:
+    x-entity: terrace_params
+    x-required-for-save: [project_id]
+    title: Parametry kalkulace
+    description: Odhadové konstanty spotřeby materiálu — čte je kusovník i cenová nabídka.
+    properties:
+      project_id: { type: [string, "null"] }
+      name: { type: string, default: 'Parametry' }
+      pedestalPerM2Board: { type: number, default: 2.5,  minimum: 0,    title: 'Terče na m² (prkna)',   unit: 'ks/m²' }
+      pedestalPerM2Tile:  { type: number, default: 3.0,  minimum: 0,    title: 'Terče na m² (dlažba)',  unit: 'ks/m²' }
+      clipPerM2:          { type: number, default: 20,   minimum: 0,    title: 'Spony na m² (WPC)',     unit: 'ks/m²' }
+      clipPerPack:        { type: number, default: 100,  minimum: 1,    title: 'Spon v balení',         unit: 'ks' }
+      screwPerM2:         { type: number, default: 25,   minimum: 0,    title: 'Vruty na m² (dřevo)',   unit: 'ks/m²' }
+      screwPerPack:       { type: number, default: 250,  minimum: 1,    title: 'Vrutů v balení',        unit: 'ks' }
+      geotexOverlapPct:   { type: number, default: 5,    minimum: 0,    title: 'Přesah geotextilie',    unit: '%' }
+      tileArea:           { type: number, default: 0.36, minimum: 0.01, title: 'Krycí plocha dlaždice', unit: 'm²' }
+      stockLength:        { type: number, default: 4.0,  minimum: 0.5,  title: 'Délka nosníku/prkna',   unit: 'm' }
+
 # =============================================================================
-# Lifecycle — idempotentní seed ceníku
+# Lifecycle — idempotentní seed ceníku a parametrů
 # =============================================================================
 lifecycle:
   initialized:
@@ -402,6 +379,21 @@ lifecycle:
           pricePedHigh: 85, priceGeotex: 25,
           priceClip: 480, priceScrew: 320, priceTrimWpc: 185, priceTrimWood: 95,
           priceInstall: 450
+        });
+      }
+
+      // --- Parametry kalkulace (singleton řádek na projekt; idempotentní) --
+      var paramRows = this.models.terrace_params.all.value;
+      var hasParams = false;
+      for (var pi = 0; pi < paramRows.length; pi++) {
+        if (paramRows[pi].project_id === pid) { hasParams = true; break; }
+      }
+      if (!hasParams) {
+        this.models.terrace_params.save({
+          project_id: pid, name: 'Parametry',
+          pedestalPerM2Board: 2.5, pedestalPerM2Tile: 3.0,
+          clipPerM2: 20, clipPerPack: 100, screwPerM2: 25, screwPerPack: 250,
+          geotexOverlapPct: 5, tileArea: 0.36, stockLength: 4.0
         });
       }
 
@@ -427,7 +419,7 @@ lifecycle:
           boardGap: 5, tilePattern: 'rovny',
           substructureType: 'alu', joistSpacing: 500, installHeight: 10,
           substructureBase: 'concrete', edgeTrim: true, edgeTrimSides: 'three',
-          includeInstallation: false, tcoYears: 10
+          includeInstallation: false
         });
       }
 
@@ -443,7 +435,7 @@ lifecycle:
           boardGap: 5, tilePattern: 'polovazba',
           substructureType: 'alu', joistSpacing: 500, installHeight: 10,
           substructureBase: 'concrete', edgeTrim: false, edgeTrimSides: 'all',
-          includeInstallation: false, tcoYears: 10
+          includeInstallation: false
         });
       }
 
@@ -451,6 +443,118 @@ lifecycle:
 # Computations — sdílené pure helpery (běží v iframe sandboxu)
 # =============================================================================
 computations:
+
+  # Resolver typů podkladu pro formulářový dropdown (format: entity-select).
+  # Statická mapa x-options se v jsonforms nerenderuje — labely musí vracet
+  # resolver. Hodnoty (concrete/soil/paving) drží výpočtová logika (=== 'soil').
+  resolveSubstructureBase:
+    params: [models, projectId, geo, geoAll, compute]
+    body: |
+      return [
+        { value: 'concrete', label: 'Betonová deska' },
+        { value: 'soil',     label: 'Zemina / štěrk' },
+        { value: 'paving',   label: 'Stávající dlažba' }
+      ];
+
+  # --- Resolvery enum dropdownů (format: entity-select) --------------------
+  # Statická mapa x-options se v jsonforms nerenderuje (ukáže holý klíč),
+  # proto labely musí vracet resolver. Hodnoty enumu zůstávají stejné, ať
+  # výpočtová logika (=== 'tile', === 'soil', …) funguje beze změny.
+  # Kalkulátor (TerraceConfig) má popisnější labely (vč. odpadu), kreslicí
+  # nástroje (TerraceSurface) kratší — proto samostatné resolvery.
+  resolveCfgMaterial:
+    params: [models, projectId, geo, geoAll, compute]
+    body: |
+      return [
+        { value: 'wpc',   label: 'WPC kompozit — bezúdržbový' },
+        { value: 'larch', label: 'Sibiřský modřín — přírodní dřevo' },
+        { value: 'tile',  label: 'Betonová dlažba 60×60 — na terče' }
+      ];
+
+  resolveBoardColor:
+    params: [models, projectId, geo, geoAll, compute]
+    body: |
+      return [
+        { value: 'antracit', label: 'Antracit' },
+        { value: 'hneda',    label: 'Hnědá / teak' },
+        { value: 'seda',     label: 'Šedá' }
+      ];
+
+  resolveCfgLayingDirection:
+    params: [models, projectId, geo, geoAll, compute]
+    body: |
+      return [
+        { value: 'podel',    label: 'Podél (odpad ~5 %)' },
+        { value: 'napric',   label: 'Napříč (odpad ~7 %)' },
+        { value: 'diagonal', label: 'Diagonálně 45° (odpad ~15 %)' }
+      ];
+
+  resolveCfgTilePattern:
+    params: [models, projectId, geo, geoAll, compute]
+    body: |
+      return [
+        { value: 'rovny',     label: 'Rovná vazba (odpad ~5 %)' },
+        { value: 'polovazba', label: 'Poloviční vazba (odpad ~8 %)' },
+        { value: 'rybikost',  label: 'Rybí kost (odpad ~15 %)' },
+        { value: 'diag45',    label: 'Diagonálně 45° (odpad ~15 %)' }
+      ];
+
+  resolveSubstructureType:
+    params: [models, projectId, geo, geoAll, compute]
+    body: |
+      return [
+        { value: 'alu',  label: 'Hliníkový nosník' },
+        { value: 'wpc',  label: 'WPC hranol' },
+        { value: 'wood', label: 'Dřevěný hranol modřín' }
+      ];
+
+  resolveEdgeTrimSides:
+    params: [models, projectId, geo, geoAll, compute]
+    body: |
+      return [
+        { value: 'all',   label: 'Celý obvod' },
+        { value: 'three', label: '3 strany (1 u stěny)' },
+        { value: 'two',   label: '2 strany (v koutě)' },
+        { value: 'one',   label: '1 strana (volná hrana)' }
+      ];
+
+  resolveSurfMaterial:
+    params: [models, projectId, geo, geoAll, compute]
+    body: |
+      return [
+        { value: 'wpc',   label: 'WPC kompozit' },
+        { value: 'larch', label: 'Sibiřský modřín' },
+        { value: 'tile',  label: 'Betonová dlažba 60×60' }
+      ];
+
+  resolveSurfLayingDirection:
+    params: [models, projectId, geo, geoAll, compute]
+    body: |
+      return [
+        { value: 'podel',    label: 'Podél' },
+        { value: 'napric',   label: 'Napříč' },
+        { value: 'diagonal', label: 'Diagonálně 45°' }
+      ];
+
+  resolveSurfTilePattern:
+    params: [models, projectId, geo, geoAll, compute]
+    body: |
+      return [
+        { value: 'rovny',     label: 'Rovná vazba' },
+        { value: 'polovazba', label: 'Poloviční vazba' },
+        { value: 'rybikost',  label: 'Rybí kost' },
+        { value: 'diag45',    label: 'Diagonálně 45°' }
+      ];
+
+  resolveObstacleType:
+    params: [models, projectId, geo, geoAll, compute]
+    body: |
+      return [
+        { value: 'pool',    label: 'Bazén / jezírko' },
+        { value: 'planter', label: 'Truhlík / záhon' },
+        { value: 'column',  label: 'Sloup / pilíř' },
+        { value: 'other',   label: 'Jiný' }
+      ];
 
   # Plocha geometrie v px² (mm²). rect → w·h; polygon → shoelace.
   geometryArea:
@@ -490,23 +594,27 @@ computations:
       return 0;
 
   # Konstanty výkazu výměr — jediný zdroj pravdy pro odhadové koeficienty, které
-  # se jinak opakují v kusovníku, výkazu výměr i cenové nabídce. Čteno přes
-  # compute.constants() (stejný vzor jako priceMeta). Připraveno na pozdější
-  # zveřejnění jako editovatelné „Parametry kalkulace".
+  # se jinak opakují v kusovníku, výkazu výměr i cenové nabídce. Čte editovatelný
+  # singleton terrace_params (kalkulátor „Parametry"); chybějící hodnota → výchozí.
+  # DPH (vatRate) zůstává natvrdo. Volá se compute.constants(models, instance).
   constants:
-    params: []
+    params: [models, instance]
     body: |
+      var pid = instance ? instance.project_id : null;
+      var p = ((models && models.terrace_params) || []).filter(function (r) { return r.project_id === pid; })[0] || {};
+      function pos(v, d) { return (v != null && v > 0) ? v : d; }       // pro dělitele (musí být > 0)
+      function nn(v, d) { return (v != null && v >= 0) ? v : d; }       // pro nezáporné spotřeby
       return {
-        vatRate: 0.21,            // sazba DPH
-        tileArea: 0.36,           // m², krycí plocha dlaždice 60×60
-        stockLength: 4.0,         // m, standardní délka nosníku/prkna
-        pedestalPerM2Tile: 3.0,   // terče/m² pod dlažbu (rošt rohů dlaždic)
-        pedestalPerM2Board: 2.5,  // terče/m² pod prkna
-        clipPerM2: 20,            // nerez spony/m² (WPC)
-        clipPerPack: 100,         // spon v balení
-        screwPerM2: 25,           // nerez vruty/m² (dřevo)
-        screwPerPack: 250,        // vrutů v balení
-        geotexOverlap: 1.05       // přesah geotextilie (5 %)
+        vatRate: 0.21,                                  // sazba DPH (natvrdo)
+        tileArea: pos(p.tileArea, 0.36),                // m², krycí plocha dlaždice
+        stockLength: pos(p.stockLength, 4.0),           // m, standardní délka nosníku/prkna
+        pedestalPerM2Tile: nn(p.pedestalPerM2Tile, 3.0),// terče/m² pod dlažbu
+        pedestalPerM2Board: nn(p.pedestalPerM2Board, 2.5),// terče/m² pod prkna
+        clipPerM2: nn(p.clipPerM2, 20),                 // nerez spony/m² (WPC)
+        clipPerPack: pos(p.clipPerPack, 100),           // spon v balení
+        screwPerM2: nn(p.screwPerM2, 25),               // nerez vruty/m² (dřevo)
+        screwPerPack: pos(p.screwPerPack, 250),         // vrutů v balení
+        geotexOverlap: 1 + nn(p.geotexOverlapPct, 5) / 100 // přesah geotextilie (z %)
       };
 
   # Nářez prken — rozpis přes krycí běžné metry (robustní pro libovolný tvar
@@ -980,7 +1088,7 @@ calculators:
           fields: [substructureType, joistSpacing, installHeight, substructureBase]
         - id: sluzby
           label: Služby
-          fields: [edgeTrim, edgeTrimSides, includeInstallation, tcoYears]
+          fields: [edgeTrim, edgeTrimSides, includeInstallation]
       rules:
         - { field: boardColor,       showWhen: { material: wpc } }
         - { field: boardWidth,       hideWhen: { material: tile } }
@@ -991,7 +1099,7 @@ calculators:
         - { field: joistSpacing,     hideWhen: { material: tile } }
         - { field: edgeTrim,         hideWhen: { material: tile } }
         - { field: edgeTrimSides,    showWhen: { edgeTrim: true } }
-    outputs: [bom, takeoff, tco, warnings]
+    outputs: [bom, takeoff, warnings]
 
   # --- Editor ceníku — každá položka (SKU) = jedna instance, cena editovatelná.
   #     sku je readOnly (řídí párování s výpočty). Změny se přes catalog param
@@ -1040,6 +1148,40 @@ calculators:
               - { type: Control, scope: '#/properties/priceInstall' }
     outputs: [cenik-prehled]
 
+  # --- Editor parametrů kalkulace — odhadové konstanty spotřeby materiálu.
+  #     Singleton; změny se přes compute.constants() ihned promítnou do
+  #     kusovníku, výkazu výměr i cenové nabídky.
+  parametry:
+    label: Parametry
+    icon: o_tune
+    inputModel: terrace_params
+    instanceNoun: Sada parametrů
+    description: Spotřeba materiálu na m², velikosti balení a krycí rozměry — pro kusovník i nabídku.
+    allowDuplicate: false
+    form:
+      uiSchema:
+        type: VerticalLayout
+        elements:
+          - type: Group
+            label: Podkonstrukce
+            elements:
+              - { type: Control, scope: '#/properties/pedestalPerM2Board' }
+              - { type: Control, scope: '#/properties/pedestalPerM2Tile' }
+              - { type: Control, scope: '#/properties/stockLength' }
+              - { type: Control, scope: '#/properties/geotexOverlapPct' }
+          - type: Group
+            label: Spojovací materiál
+            elements:
+              - { type: Control, scope: '#/properties/clipPerM2' }
+              - { type: Control, scope: '#/properties/clipPerPack' }
+              - { type: Control, scope: '#/properties/screwPerM2' }
+              - { type: Control, scope: '#/properties/screwPerPack' }
+          - type: Group
+            label: Povrch
+            elements:
+              - { type: Control, scope: '#/properties/tileArea' }
+    outputs: [parametry-prehled]
+
 # =============================================================================
 # Aggregations — signatura (models, instance, compute). Ceny se čtou
 # z editovatelného singletonu terrace_prices (models.terrace_prices) přes priceOf, ne přes
@@ -1071,6 +1213,34 @@ aggregations:
         }
       };
 
+  # --- Přehled parametrů kalkulace — čte hodnoty přes compute.constants() ----
+  paramsPrehled:
+    params: [models, instance, compute]
+    body: |
+      var k = compute.constants(models, instance);
+      var rows = [
+        { category: 'Podkonstrukce',       name: 'Terče na m² (prkna)',   value: k.pedestalPerM2Board, unit: 'ks/m²' },
+        { category: 'Podkonstrukce',       name: 'Terče na m² (dlažba)',  value: k.pedestalPerM2Tile,  unit: 'ks/m²' },
+        { category: 'Podkonstrukce',       name: 'Délka nosníku/prkna',   value: k.stockLength,        unit: 'm' },
+        { category: 'Podkonstrukce',       name: 'Přesah geotextilie',    value: Math.round((k.geotexOverlap - 1) * 100), unit: '%' },
+        { category: 'Spojovací materiál',  name: 'Spony na m² (WPC)',     value: k.clipPerM2,          unit: 'ks/m²' },
+        { category: 'Spojovací materiál',  name: 'Spon v balení',         value: k.clipPerPack,        unit: 'ks' },
+        { category: 'Spojovací materiál',  name: 'Vruty na m² (dřevo)',   value: k.screwPerM2,         unit: 'ks/m²' },
+        { category: 'Spojovací materiál',  name: 'Vrutů v balení',        value: k.screwPerPack,       unit: 'ks' },
+        { category: 'Povrch',              name: 'Krycí plocha dlaždice', value: k.tileArea,           unit: 'm²' }
+      ];
+      return {
+        columns: [
+          { key: 'name',  label: 'Parametr' },
+          { key: 'value', label: 'Hodnota', align: 'right', format: 'number' },
+          { key: 'unit',  label: 'J.m.' }
+        ],
+        rows: rows,
+        metrics: {
+          itemCount: { value: rows.length, label: 'Počet parametrů', unit: '' }
+        }
+      };
+
   # --- Kusovník — kategorizovaný, oceněný -----------------------------------
   terraceBOM:
     params: [models, instance, compute]
@@ -1086,7 +1256,7 @@ aggregations:
       var perimA = (c.deckPerimeter || 0) > 0 ? c.deckPerimeter : meas.perim;
       var net = Math.max(0, grossA - holesA);
 
-      var k = compute.constants();
+      var k = compute.constants(models, c);
       var isTile = (c.material === 'tile');
       var isWpc  = (c.material === 'wpc');
       var bw = c.boardWidth || 140;
@@ -1199,7 +1369,7 @@ aggregations:
       var holes = (c.obstaclesArea || 0) > 0 ? c.obstaclesArea : meas.holes;
       var perim = (c.deckPerimeter || 0) > 0 ? c.deckPerimeter : meas.perim;
       var net = Math.max(0, gross - holes);
-      var k = compute.constants();
+      var k = compute.constants(models, c);
       var isTile = (c.material === 'tile');
       var bw = c.boardWidth || 140;
       var bl = c.boardMaxLength || 4000;
@@ -1259,86 +1429,9 @@ aggregations:
         ],
         groups: groups,
         footer: [
-          { label: isTile ? 'Odpad pro tento směr pokládky' : 'Odpad z nářezu prken',
+          { label: isTile ? 'Odpad pro tento vzor dlažby' : 'Odpad z nářezu prken',
             value: Math.round(wastePct * 100) + ' %' }
         ]
-      };
-
-  # --- Srovnání životních nákladů (TCO) -------------------------------------
-  terraceTCO:
-    params: [models, instance, compute]
-    body: |
-      var c = instance;
-      if (!c) return { columns: [], rows: [], metrics: {} };
-
-      var meas = compute.measuredNet(models, c);
-      var grossA = (c.deckGrossArea || 0) > 0 ? c.deckGrossArea : meas.gross;
-      var holesA = (c.obstaclesArea || 0) > 0 ? c.obstaclesArea : meas.holes;
-      var net = Math.max(0, grossA - holesA);
-      var years = c.tcoYears || 10;
-
-      // Cena materiálu/m² se bere z editovatelného ceníku (terrace_prices) —
-      // WPC dle zvolené barvy, modřín a dlažba dle svých SKU. maint = údržba
-      // Kč/m²/rok, life = životnost (roky) zůstávají jako předpoklady TCO.
-      var prices = (models.terrace_prices || []).filter(function (r) { return r.project_id === c.project_id; })[0] || {};
-      var meta = compute.priceMeta();
-      var MATERIALS = {
-        wpc:   { label: 'WPC kompozit',    matM2: compute.priceOf(meta, prices, compute.deckBoardSku('wpc', c.boardColor)).unitPrice, maint: 0,   life: 25 },
-        larch: { label: 'Sibiřský modřín', matM2: compute.priceOf(meta, prices, 'DECK-LARCH').unitPrice,    maint: 120, life: 15 },
-        tile:  { label: 'Betonová dlažba', matM2: compute.priceOf(meta, prices, 'DECK-TILE-GREY').unitPrice, maint: 10,  life: 50 }
-      };
-
-      function tco(m) {
-        var initial = m.matM2 * net;
-        var maintenance = m.maint * net * years;
-        var replacements = Math.max(0, Math.ceil(years / m.life) - 1);
-        var replacementCost = replacements * m.matM2 * net;
-        return {
-          initial: initial,
-          maintenance: maintenance,
-          replacements: replacements,
-          total: initial + maintenance + replacementCost
-        };
-      }
-
-      var keys = ['wpc', 'larch', 'tile'];
-      var rows = [];
-      var byKey = {};
-      var maxOther = 0;
-      for (var i = 0; i < keys.length; i++) {
-        var m = MATERIALS[keys[i]];
-        var t = tco(m);
-        byKey[keys[i]] = t;
-        if (keys[i] !== c.material && t.total > maxOther) maxOther = t.total;
-        rows.push({
-          material: m.label + (keys[i] === c.material ? ' (zvoleno)' : ''),
-          initial: Math.round(t.initial),
-          maintenance: Math.round(t.maintenance),
-          replacements: t.replacements,
-          total: Math.round(t.total)
-        });
-      }
-
-      var chosen = byKey[c.material] || byKey.wpc;
-      var savings = Math.round(maxOther - chosen.total);
-
-      return {
-        columns: [
-          { key: 'material',     label: 'Materiál' },
-          { key: 'initial',      label: 'Pořízení', align: 'right', format: 'currency' },
-          { key: 'maintenance',  label: 'Údržba ' + years + ' let', align: 'right', format: 'currency' },
-          { key: 'replacements', label: 'Výměn', align: 'right', format: 'integer' },
-          { key: 'total',        label: 'Celkem ' + years + ' let', align: 'right', format: 'currency' }
-        ],
-        rows: rows,
-        footer: [
-          { label: 'Úspora vs. nejdražší alternativa za ' + years + ' let', value: savings, format: 'currency' }
-        ],
-        metrics: {
-          chosenTotal: { value: Math.round(chosen.total), label: 'Náklady ' + years + ' let', unit: 'Kč', format: 'currency' },
-          savings:     { value: savings, label: 'Úspora vs. nejdražší alt.', unit: 'Kč', format: 'currency' },
-          horizon:     { value: years, label: 'Horizont', unit: 'let' }
-        }
       };
 
   # --- Kontrola vstupů — upozornění na netypické / nesmyslné kombinace -------
@@ -1405,7 +1498,7 @@ aggregations:
 
       // -- Materiál / podklad ---------------------------------------------
       if (c.material === 'larch') {
-        info('Přírodní modřín vyžaduje pravidelnou údržbu (olejování) — promítnuto do Životních nákladů.');
+        info('Přírodní modřín vyžaduje pravidelnou údržbu (olejování).');
       }
       if (c.substructureBase === 'soil') {
         info('Podklad zemina/štěrk — počítejte se zhutněným a odvodněným podložím; v kusovníku je geotextilie proti plevelu.');
@@ -1443,6 +1536,14 @@ views:
       - { type: metrics, source: cenikPrehled.metrics }
       - { type: table,   source: cenikPrehled, groupBy: category }
 
+  - id: parametry-prehled
+    label: Přehled parametrů
+    icon: o_tune
+    aggregation: paramsPrehled
+    layout:
+      - { type: metrics, source: paramsPrehled.metrics }
+      - { type: table,   source: paramsPrehled, groupBy: category }
+
   - id: bom
     label: Kusovník
     icon: o_receipt_long
@@ -1457,14 +1558,6 @@ views:
     aggregation: terraceTakeoff
     layout:
       - { type: table, source: terraceTakeoff, groupBy: section }
-
-  - id: tco
-    label: Životní náklady
-    icon: o_savings
-    aggregation: terraceTCO
-    layout:
-      - { type: metrics, source: terraceTCO.metrics }
-      - { type: table,   source: terraceTCO }
 
   - id: warnings
     label: Kontrola
@@ -1569,7 +1662,7 @@ panels:
         <div class="tp-kpis">
           <div><span>Materiál</span><strong>{{ materialLabel }}</strong></div>
           <div><span>Čistá plocha</span><strong>{{ netArea }} m²</strong></div>
-          <div><span>Počet prken</span><strong>{{ boardCount }}</strong></div>
+          <div><span>{{ boardCountLabel }}</span><strong>{{ boardCount }}</strong></div>
           <div><span>Cena za m²</span><strong>{{ pricePerM2 }} Kč</strong></div>
         </div>
 
@@ -1659,7 +1752,7 @@ panels:
       var perim = (c.deckPerimeter || 0) > 0 ? c.deckPerimeter : measPerim;
       var net = Math.max(0, gross - holes);
 
-      var k = compute.constants();
+      var k = compute.constants(models, c);
       var isTile = (c.material === 'tile');
       var isWpc = (c.material === 'wpc');
       var bw = c.boardWidth || 140;
@@ -1722,6 +1815,7 @@ panels:
         materialLabel: materialLabel,
         netArea: Math.round(net * 10) / 10,
         boardCount: boardCount,
+        boardCountLabel: isTile ? 'Počet dlaždic' : 'Počet prken',
         pricePerM2: net > 0 ? Math.round(total / net) : 0,
         bidLines: bidLines,
         subtotal: subtotal,
