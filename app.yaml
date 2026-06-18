@@ -86,6 +86,25 @@ models:
         title: Maximální délka prkna
         description: Nejdelší dodávané prkno — určuje krycí plochu jednoho kusu.
         unit: mm
+      boardGap:
+        type: number
+        default: 5
+        minimum: 4
+        maximum: 8
+        title: Dilatační mezera mezi deskami
+        description: Spára mezi prkny (4–8 mm). Větší mezera = méně prken, ale širší spáry.
+        unit: mm
+      tilePattern:
+        type: string
+        default: rovny
+        enum: [rovny, polovazba, rybikost, diag45]
+        title: Vzor dlažby
+        description: Vzor pokládky dlaždic — složitější vzory zvyšují odpad z řezání.
+        x-options:
+          rovny:    { label: 'Rovná vazba (odpad ~5 %)' }
+          polovazba: { label: 'Poloviční vazba (odpad ~8 %)' }
+          rybikost: { label: 'Rybí kost (odpad ~15 %)' }
+          diag45:   { label: 'Diagonálně 45° (odpad ~15 %)' }
 
       # -- Krok 2 · Rozměry (měřeno z výkresu, editovatelné) -----------------
       deckGrossArea:
@@ -168,6 +187,17 @@ models:
         type: boolean
         default: true
         title: Okrajové ukončovací lišty
+      edgeTrimSides:
+        type: string
+        default: all
+        enum: [all, three, two, one]
+        title: Rozsah lišt
+        description: Které strany obvodu se lemují — terasa u stěny domu lišty na té straně nepotřebuje.
+        x-options:
+          all:   { label: 'Celý obvod' }
+          three: { label: '3 strany (1 u stěny)' }
+          two:   { label: '2 strany (v koutě)' }
+          one:   { label: '1 strana (volná hrana)' }
       includeInstallation:
         type: boolean
         default: false
@@ -237,6 +267,23 @@ models:
         minimum: 1000
         title: Maximální délka prkna
         unit: mm
+      boardGap:
+        type: number
+        default: 5
+        minimum: 4
+        maximum: 8
+        title: Mezera mezi deskami
+        unit: mm
+      tilePattern:
+        type: string
+        default: rovny
+        enum: [rovny, polovazba, rybikost, diag45]
+        title: Vzor dlažby
+        x-options:
+          rovny:    { label: 'Rovná vazba' }
+          polovazba: { label: 'Poloviční vazba' }
+          rybikost: { label: 'Rybí kost' }
+          diag45:   { label: 'Diagonálně 45°' }
 
       regionGeometryIds:
         type: array
@@ -377,8 +424,9 @@ lifecycle:
         this.models.TerraceConfig.save({
           project_id: pid, name: 'Varianta A — WPC antracit',
           material: 'wpc', boardColor: 'antracit', layingDirection: 'podel',
+          boardGap: 5, tilePattern: 'rovny',
           substructureType: 'alu', joistSpacing: 500, installHeight: 10,
-          substructureBase: 'concrete', edgeTrim: true,
+          substructureBase: 'concrete', edgeTrim: true, edgeTrimSides: 'three',
           includeInstallation: false, tcoYears: 10
         });
       }
@@ -392,8 +440,9 @@ lifecycle:
         this.models.TerraceConfig.save({
           project_id: pid, name: 'Varianta B — betonová dlažba',
           material: 'tile', boardColor: 'antracit', layingDirection: 'podel',
+          boardGap: 5, tilePattern: 'polovazba',
           substructureType: 'alu', joistSpacing: 500, installHeight: 10,
-          substructureBase: 'concrete', edgeTrim: false,
+          substructureBase: 'concrete', edgeTrim: false, edgeTrimSides: 'all',
           includeInstallation: false, tcoYears: 10
         });
       }
@@ -455,11 +504,13 @@ computations:
   # se s druhováním odřezků). Délka prkna mění POČET kusů, ne množství materiálu
   # (m² nakoupeného materiálu ≈ plocha × (1 + rezerva), nezávisle na délce).
   boardLayout:
-    params: [netArea, boardWidth, boardLength, direction]
+    params: [netArea, boardWidth, boardLength, direction, boardGap]
     body: |
       var bw = boardWidth > 0 ? boardWidth : 140;
       var bl = boardLength > 0 ? boardLength : 4000;
-      var coverWidth = bw / 1000;               // m, krycí šířka prkna
+      var gap = boardGap > 0 ? boardGap : 5;    // mm, dilatační mezera mezi prkny
+      var coverWidth = (bw + gap) / 1000;       // m, krycí rozteč vč. mezery (kolik plochy prkno pokryje)
+      var boardWidthM = bw / 1000;              // m, skutečná šířka prkna (nakoupený materiál)
       var boardLenM = bl / 1000;                // m, délka prkna
       var net = netArea > 0 ? netArea : 0;
       var allowancePct = direction === 'diagonal' ? 0.15
@@ -470,10 +521,10 @@ computations:
           offcutM: 0, wastePct: 0, allowancePct: allowancePct
         };
       }
-      var linearM = net / coverWidth;                         // krycí běžné metry prken
+      var linearM = net / coverWidth;                         // krycí běžné metry prken (mezera pomáhá krýt plochu)
       var totalBoards = Math.ceil((linearM * (1 + allowancePct)) / boardLenM);
       var purchasedM = totalBoards * boardLenM;
-      var coverArea = totalBoards * coverWidth * boardLenM;   // m² nakoupeného materiálu
+      var coverArea = totalBoards * boardWidthM * boardLenM;  // m² nakoupeného materiálu (skutečná šířka prkna)
       var offcutM = Math.max(0, purchasedM - linearM);
       var wastePct = linearM > 0 ? offcutM / linearM : 0;
       return {
@@ -481,6 +532,25 @@ computations:
         coverArea: coverArea, offcutM: offcutM, wastePct: wastePct,
         allowancePct: allowancePct
       };
+
+  # Koeficient odpadu dlažby dle vzoru pokládky.
+  tileWasteFactor:
+    params: [pattern]
+    body: |
+      if (pattern === 'rybikost' || pattern === 'diag45') return 1.15;
+      if (pattern === 'polovazba') return 1.08;
+      return 1.05;
+
+  # Podíl obvodu, který se lemuje ukončovací lištou — terasa u stěny domu
+  # lišty na přilehlých stranách nepotřebuje. Vrací 0–1.
+  edgeTrimFraction:
+    params: [edgeTrim, edgeTrimSides]
+    body: |
+      if (!edgeTrim) return 0;
+      if (edgeTrimSides === 'three') return 0.75;
+      if (edgeTrimSides === 'two') return 0.5;
+      if (edgeTrimSides === 'one') return 0.25;
+      return 1;
 
   # Metadata ceníku — mapování pole singletonu terrace_prices → sku/název/j.m./
   # kategorie. Jediný zdroj pravdy pro názvy položek v kusovníku i nabídce.
@@ -614,7 +684,9 @@ computations:
       if (minX === null) return out;
       var w = maxX - minX, h = maxY - minY;
       var bw = (surface && surface.boardWidth) || (c ? c.boardWidth : 0) || 140;
-      var pitch = isTile ? 600 : (bw + 5);       // dlaždice 60 cm; prkno bw + mezera 5 mm
+      var gap = (surface && surface.boardGap) || (c ? c.boardGap : 0) || 5;
+      var tilePattern = (surface && surface.tilePattern) || (c ? c.tilePattern : null) || 'rovny';
+      var pitch = isTile ? 600 : (bw + gap);     // dlaždice 60 cm; prkno bw + dilatační mezera
       var bl = (surface && surface.boardMaxLength) || (c ? c.boardMaxLength : 0) || 4000;   // max. délka prkna (mm = px)
       var lines = out.lines;
       var cap = 1000;
@@ -645,7 +717,45 @@ computations:
           col++;
         }
       }
-      if (isTile) { vlines(); hlines(); }
+      // Dlažba — poloviční vazba: vodorovné spáry + svislé prostřídané o půl dlaždice.
+      function tileRunningBond() {
+        hlines();
+        var r = 0;
+        for (var y = minY; y < maxY - 1 && lines.length < cap; y += pitch) {
+          var yb = (y + pitch < maxY) ? y + pitch : maxY;
+          var off = (r % 2) * (pitch / 2);
+          for (var jx = minX + pitch - off; jx < maxX - 1 && lines.length < cap; jx += pitch) {
+            if (jx > minX) lines.push({ x1: jx, y1: y, x2: jx, y2: yb });
+          }
+          r++;
+        }
+      }
+      // Dlažba — diagonální 45° mřížka (dva směry úhlopříček).
+      function tileDiagGrid() {
+        var span = w + h;
+        for (var sx = minX - h; sx < maxX && lines.length < cap; sx += pitch) {
+          lines.push({ x1: sx, y1: minY, x2: sx + span, y2: minY + span });
+        }
+        for (var sx2 = minX; sx2 < maxX + h && lines.length < cap; sx2 += pitch) {
+          lines.push({ x1: sx2, y1: minY, x2: sx2 - span, y2: minY + span });
+        }
+      }
+      // Dlažba — rybí kost: krátké 45° úsečky střídající směr v mřížce.
+      function tileHerringbone() {
+        for (var gy = minY; gy < maxY && lines.length < cap; gy += pitch) {
+          for (var gx = minX; gx < maxX && lines.length < cap; gx += pitch) {
+            var even = ((Math.round((gx - minX) / pitch) + Math.round((gy - minY) / pitch)) % 2) === 0;
+            if (even) lines.push({ x1: gx, y1: gy, x2: gx + pitch, y2: gy + pitch });
+            else lines.push({ x1: gx + pitch, y1: gy, x2: gx, y2: gy + pitch });
+          }
+        }
+      }
+      if (isTile) {
+        if (tilePattern === 'diag45') tileDiagGrid();
+        else if (tilePattern === 'rybikost') tileHerringbone();
+        else if (tilePattern === 'polovazba') tileRunningBond();
+        else { vlines(); hlines(); }
+      }
       else if (dir === 'napric') { vlines(); napricJoints(); }
       else if (dir === 'diagonal') {
         var span = w + h;
@@ -681,7 +791,7 @@ tools:
     icon: o_deck
     label: Plocha terasy
     namePrefix: Terasa
-    dialogFields: [name, material, layingDirection, boardWidth, boardMaxLength, regionGeometryIds]
+    dialogFields: [name, material, layingDirection, boardWidth, boardMaxLength, boardGap, tilePattern, regionGeometryIds]
     template: |
       {% if geos | length > 0 %}
       {% set viz = compute.surfaceLines(geo, models, m) %}
@@ -792,7 +902,7 @@ calculators:
         - id: material
           label: Materiál
           description: Zvolte materiál povrchu, rozměry prkna a směr pokládky.
-          fields: [material, boardColor, layingDirection, boardWidth, boardMaxLength]
+          fields: [material, boardColor, layingDirection, boardWidth, boardMaxLength, boardGap, tilePattern]
         - id: rozmery
           label: Rozměry
           description: Zakreslete plochu terasy nástrojem „Plocha terasy“ a výřezy nástrojem „Výřez / překážka“. Hodnoty lze ručně přepsat.
@@ -802,15 +912,18 @@ calculators:
           fields: [substructureType, joistSpacing, installHeight, substructureBase]
         - id: sluzby
           label: Služby
-          fields: [edgeTrim, includeInstallation, tcoYears]
+          fields: [edgeTrim, edgeTrimSides, includeInstallation, tcoYears]
       rules:
         - { field: boardColor,       showWhen: { material: wpc } }
         - { field: boardWidth,       hideWhen: { material: tile } }
         - { field: boardMaxLength,   hideWhen: { material: tile } }
+        - { field: boardGap,         hideWhen: { material: tile } }
+        - { field: tilePattern,      showWhen: { material: tile } }
         - { field: substructureType, hideWhen: { material: tile } }
         - { field: joistSpacing,     hideWhen: { material: tile } }
         - { field: edgeTrim,         hideWhen: { material: tile } }
-    outputs: [bom, takeoff, tco]
+        - { field: edgeTrimSides,    showWhen: { edgeTrim: true } }
+    outputs: [bom, takeoff, tco, warnings]
 
   # --- Editor ceníku — každá položka (SKU) = jedna instance, cena editovatelná.
   #     sku je readOnly (řídí párování s výpočty). Změny se přes catalog param
@@ -914,11 +1027,11 @@ aggregations:
       var coverArea, unitCount, unitLabel;
       var layout = null;
       if (isTile) {
-        coverArea = net * compute.wasteFactor(c.layingDirection);
+        coverArea = net * compute.tileWasteFactor(c.tilePattern);
         unitCount = Math.ceil(coverArea / 0.36);                  // 60×60 dlaždice
         unitLabel = 'Počet dlaždic';
       } else {
-        layout = compute.boardLayout(net, bw, bl, c.layingDirection);
+        layout = compute.boardLayout(net, bw, bl, c.layingDirection, c.boardGap);
         coverArea = layout.coverArea;                             // m² zakoupených prken vč. nářezu
         unitCount = layout.totalBoards;
         unitLabel = 'Počet prken';
@@ -960,7 +1073,7 @@ aggregations:
         var joistPcs = Math.ceil((spacingM > 0 ? net / spacingM : 0) / 4.0);
         var pedCount = Math.ceil(net * 2.5);
         var fastPacks = isWpc ? Math.ceil(net * 20 / 100) : Math.ceil(net * 25 / 250);
-        var trimLen = c.edgeTrim ? Math.ceil(perimA) : 0;
+        var trimLen = Math.ceil(perimA * compute.edgeTrimFraction(c.edgeTrim, c.edgeTrimSides));
         var subRows = [
           line(joist.name, joistPcs, 'ks', joist.unitPrice),
           line(ped.name, pedCount, 'ks', ped.unitPrice)
@@ -1020,9 +1133,9 @@ aggregations:
       var isTile = (c.material === 'tile');
       var bw = c.boardWidth || 140;
       var bl = c.boardMaxLength || 4000;
-      var layout = isTile ? null : compute.boardLayout(net, bw, bl, c.layingDirection);
-      var withWaste = isTile ? net * compute.wasteFactor(c.layingDirection) : layout.coverArea;
-      var wastePct = isTile ? (compute.wasteFactor(c.layingDirection) - 1) : layout.wastePct;
+      var layout = isTile ? null : compute.boardLayout(net, bw, bl, c.layingDirection, c.boardGap);
+      var withWaste = isTile ? net * compute.tileWasteFactor(c.tilePattern) : layout.coverArea;
+      var wastePct = isTile ? (compute.tileWasteFactor(c.tilePattern) - 1) : layout.wastePct;
       var spacingM = (c.joistSpacing || 500) / 1000;
       var joistLm = spacingM > 0 ? net / spacingM : 0;
       var pedCount = Math.ceil(net * (isTile ? 3.0 : 2.5));
@@ -1158,6 +1271,95 @@ aggregations:
         }
       };
 
+  # --- Kontrola vstupů — upozornění na netypické / nesmyslné kombinace -------
+  # Naplňuje UX princip „vzdělávání v kontextu" a F5 (poznámky k výsledku).
+  # Nikdy neblokuje průchod — jen informuje (Varování / Info).
+  terraceWarnings:
+    params: [models, instance, compute]
+    body: |
+      var c = instance;
+      if (!c) return { columns: [], rows: [], metrics: {} };
+
+      var meas = compute.measuredNet(models, c);
+      var gross = (c.deckGrossArea || 0) > 0 ? c.deckGrossArea : meas.gross;
+      var holes = (c.obstaclesArea || 0) > 0 ? c.obstaclesArea : meas.holes;
+      var net = Math.max(0, gross - holes);
+      var isTile = (c.material === 'tile');
+      var isWpc = (c.material === 'wpc');
+
+      var rows = [];
+      function warn(msg) { rows.push({ level: 'Varování', icon: '⚠', message: msg }); }
+      function info(msg) { rows.push({ level: 'Info', icon: 'ℹ', message: msg }); }
+
+      // -- Plocha ---------------------------------------------------------
+      if (net <= 0) {
+        warn('Není zadána žádná plocha terasy — zakreslete ji nástrojem „Plocha terasy“ nebo zadejte rozměry ručně v kroku Rozměry.');
+      }
+      if (gross > 0 && holes >= gross) {
+        warn('Plocha výřezů (' + (Math.round(holes * 10) / 10) + ' m²) je větší nebo rovna ploše terasy (' + (Math.round(gross * 10) / 10) + ' m²) — zkontrolujte zakreslení.');
+      }
+      if (net > 100) {
+        info('Velká plocha (' + (Math.round(net * 10) / 10) + ' m²) — u rozsáhlých teras zvažte dilatační spáry v ploše a únosnost podkladu (mimo rozsah kalkulátoru).');
+      }
+
+      // -- Podkonstrukce (jen prkna) --------------------------------------
+      if (!isTile) {
+        var sp = c.joistSpacing || 500;
+        if (isWpc && sp > 500) {
+          warn('Rozteč nosníků ' + sp + ' mm je pro WPC prkna velká — doporučeno max. 400–500 mm (riziko průhybu).');
+        }
+        if (!isWpc && sp > 600) {
+          warn('Rozteč nosníků ' + sp + ' mm je pro dřevěná prkna velká — doporučeno max. 600 mm.');
+        }
+      }
+
+      // -- Výška nad terénem ----------------------------------------------
+      var h = c.installHeight || 0;
+      if (h > 15) {
+        warn('Výška ' + h + ' cm přesahuje rozsah běžných rektifikačních terčů (do ~15 cm) — počítejte se zděnými/betonovými podpěrami nebo terči s podpěrnou trubkou.');
+      }
+
+      // -- Dilatační mezera (ručně přepsatelná mimo 4–8 mm) ---------------
+      var gap = c.boardGap;
+      if (!isTile && gap != null && (gap < 4 || gap > 8)) {
+        warn('Dilatační mezera ' + gap + ' mm je mimo doporučený rozsah 4–8 mm.');
+      }
+
+      // -- Pokládka / odpad -----------------------------------------------
+      if (!isTile && c.layingDirection === 'diagonal') {
+        info('Diagonální pokládka zvyšuje odpad prken o ~15 % oproti podélné.');
+      }
+      if (isTile && (c.tilePattern === 'rybikost' || c.tilePattern === 'diag45')) {
+        info('Zvolený vzor dlažby zvyšuje odpad z řezání (~15 %).');
+      }
+
+      // -- Materiál / podklad ---------------------------------------------
+      if (c.material === 'larch') {
+        info('Přírodní modřín vyžaduje pravidelnou údržbu (olejování) — promítnuto do Životních nákladů.');
+      }
+      if (c.substructureBase === 'soil') {
+        info('Podklad zemina/štěrk — počítejte se zhutněným a odvodněným podložím; v kusovníku je geotextilie proti plevelu.');
+      }
+
+      if (rows.length === 0) {
+        rows.push({ level: 'OK', icon: '✓', message: 'Bez připomínek — zadané hodnoty jsou v obvyklém rozsahu.' });
+      }
+
+      var warnCount = 0;
+      for (var i = 0; i < rows.length; i++) { if (rows[i].level === 'Varování') warnCount++; }
+
+      return {
+        columns: [
+          { key: 'icon',    label: '' },
+          { key: 'level',   label: 'Závažnost' },
+          { key: 'message', label: 'Upozornění' }
+        ],
+        rows: rows,
+        metrics: {
+          warningCount: { value: warnCount, label: 'Počet varování', unit: '' }
+        }
+      };
+
 # =============================================================================
 # Views
 # =============================================================================
@@ -1193,6 +1395,14 @@ views:
     layout:
       - { type: metrics, source: terraceTCO.metrics }
       - { type: table,   source: terraceTCO }
+
+  - id: warnings
+    label: Kontrola
+    icon: o_warning
+    aggregation: terraceWarnings
+    layout:
+      - { type: metrics, source: terraceWarnings.metrics }
+      - { type: table,   source: terraceWarnings }
 
 # =============================================================================
 # Panels — cenová nabídka TerasProfi s.r.o. (FIKTIVNÍ placeholder)
@@ -1349,7 +1559,6 @@ panels:
       }
 
       function priceOf(sku) { return compute.priceOf(meta, prices, sku); }
-      function wasteFactor(d) { return d === 'diagonal' ? 1.18 : (d === 'napric' ? 1.07 : 1.05); }
       function deckSku(mat, col) {
         if (mat === 'tile') return 'DECK-TILE-GREY';
         if (mat === 'larch') return 'DECK-LARCH';
@@ -1394,10 +1603,10 @@ panels:
       // Dlažba → plošně s odpadem; prkna → reálný nářez po řadách (sdílená computation).
       var deckArea, boardCount;
       if (isTile) {
-        deckArea = net * wasteFactor(c.layingDirection);
+        deckArea = net * compute.tileWasteFactor(c.tilePattern);
         boardCount = Math.ceil(deckArea / 0.36);
       } else {
-        var layout = compute.boardLayout(net, bw, bl, c.layingDirection);
+        var layout = compute.boardLayout(net, bw, bl, c.layingDirection, c.boardGap);
         deckArea = layout.coverArea;
         boardCount = layout.totalBoards;
       }
@@ -1428,7 +1637,7 @@ panels:
         var spacingM = (c.joistSpacing || 500) / 1000;
         var joistPcs = Math.ceil((spacingM > 0 ? net / spacingM : 0) / 4.0);
         var fastPacks = isWpc ? Math.ceil(net * 20 / 100) : Math.ceil(net * 25 / 250);
-        var trimLen = c.edgeTrim ? Math.ceil(perim) : 0;
+        var trimLen = Math.ceil(perim * compute.edgeTrimFraction(c.edgeTrim, c.edgeTrimSides));
         line(joist.name, joistPcs, 'ks', joist.unitPrice);
         line(ped.name, Math.ceil(net * 2.5), 'ks', ped.unitPrice);
         line(fast.name, fastPacks, 'bal', fast.unitPrice);
