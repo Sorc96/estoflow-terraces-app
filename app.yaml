@@ -881,6 +881,77 @@ computations:
       } else { hlines(); podelJoints(); }
       return out;
 
+  # Umístění popisku — vrátí dobrý VNITŘNÍ bod pro text (pól nedostupnosti)
+  # a „poloměr" volného místa kolem něj (room), pro PLOŠNĚ NEJVĚTŠÍ z
+  # předaných geometrií. Bbox střed (envelope) padá u L-tvarů a konkávních
+  # polygonů MIMO plochu — proto se hledá bod nejdál od všech hran, který
+  # leží uvnitř. room slouží i k proporčnímu nastavení velikosti písma.
+  labelSpot:
+    params: [geos]
+    body: |
+      function pip(x, y, pts) {
+        var inside = false;
+        for (var i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+          var xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y;
+          if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+        }
+        return inside;
+      }
+      function dSeg(px, py, ax, ay, bx, by) {
+        var dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+        var t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
+        t = t < 0 ? 0 : (t > 1 ? 1 : t);
+        var cx = ax + t * dx, cy = ay + t * dy;
+        return Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
+      }
+      function dPoly(x, y, pts) {
+        var d = Infinity;
+        for (var i = 0, j = pts.length - 1; i < pts.length; j = i++) d = Math.min(d, dSeg(x, y, pts[j].x, pts[j].y, pts[i].x, pts[i].y));
+        return d;
+      }
+      function spotOf(g) {
+        if (!g) return null;
+        if (g.type === 'circle') return { x: g.x, y: g.y, room: g.radius, area: Math.PI * g.radius * g.radius };
+        if (g.type === 'rect') return { x: g.x + g.width / 2, y: g.y + g.height / 2, room: Math.min(g.width, g.height) / 2, area: g.width * g.height };
+        if (g.type === 'polygon' && g.points && g.points.length >= 3) {
+          var pts = g.points, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (var p = 0; p < pts.length; p++) {
+            if (pts[p].x < minX) minX = pts[p].x; if (pts[p].x > maxX) maxX = pts[p].x;
+            if (pts[p].y < minY) minY = pts[p].y; if (pts[p].y > maxY) maxY = pts[p].y;
+          }
+          var w = maxX - minX, h = maxY - minY;
+          // Shoelace plocha pro výběr největší geometrie.
+          var a2 = 0;
+          for (var k = 0; k < pts.length; k++) { var n = (k + 1) % pts.length; a2 += pts[k].x * pts[n].y - pts[n].x * pts[k].y; }
+          var area = Math.abs(a2) / 2;
+          // Pól nedostupnosti — mřížkové hledání vnitřního bodu nejdál od hran.
+          var N = 20, sx = w / N, sy = h / N;
+          var bx = (minX + maxX) / 2, by = (minY + maxY) / 2, bd = -1;
+          for (var gx = minX + sx / 2; gx < maxX; gx += sx) {
+            for (var gy = minY + sy / 2; gy < maxY; gy += sy) {
+              if (!pip(gx, gy, pts)) continue;
+              var d = dPoly(gx, gy, pts);
+              if (d > bd) { bd = d; bx = gx; by = gy; }
+            }
+          }
+          if (bd < 0) {
+            // velmi tenký polygon → centroid jako nouzové řešení
+            var cx = 0, cy = 0;
+            for (var q = 0; q < pts.length; q++) { cx += pts[q].x; cy += pts[q].y; }
+            return { x: cx / pts.length, y: cy / pts.length, room: Math.min(w, h) / 2, area: area };
+          }
+          return { x: bx, y: by, room: bd, area: area };
+        }
+        return null;
+      }
+      var best = null;
+      var list = geos || [];
+      for (var i = 0; i < list.length; i++) {
+        var s = spotOf(list[i]);
+        if (s && (!best || s.area > best.area)) best = s;
+      }
+      return best;
+
   # Měřené plochy z modelů (rollup ze zakreslené geometrie) — fallback,
   # když x-measured pole ve formuláři ještě nejsou naseedovaná.
   measuredNet:
@@ -970,13 +1041,25 @@ tools:
           {% endfor %}
         </g>
 
-        {% if envelope %}
-        <text x="{{ envelope.x + envelope.width / 2 }}" y="{{ envelope.y + envelope.height / 2 }}"
+        {% set spot = compute.labelSpot(geos) %}
+        {% if spot %}
+        {# Popisek se umisťuje do vnitřního „vizuálního středu" plochy (ne do
+           středu obálky, který u L-tvarů padá mimo) a velikost se odvozuje
+           od volného místa (room) tak, aby se text vešel a byl čitelný na
+           přirozeném zoomu. Spodní mez = pointsToMm(11) pro malé/kalibrované
+           výkresy. #}
+        {% set label = m.name ~ ' · ' ~ (viz.areaM2 | round(1)) ~ ' m²' %}
+        {% set fitW = spot.room * 1.7 / (0.58 * (label | length)) %}
+        {% set fitH = spot.room * 0.7 %}
+        {% set fs = fitW if fitW < fitH else fitH %}
+        {% set floor = pointsToMm(11) %}
+        {% set fs = fs if fs > floor else floor %}
+        <text x="{{ spot.x }}" y="{{ spot.y }}"
               text-anchor="middle" dominant-baseline="central"
               font-family="-apple-system, BlinkMacSystemFont, sans-serif"
-              font-size="{{ pointsToMm(11) }}" fill="#6b3f17" font-weight="700"
-              paint-order="stroke" stroke="#ffffff" stroke-width="{{ pointsToMm(2.5) }}"
-              style="user-select: none">{{ m.name }} · {{ viz.areaM2 | round(1) }} m²</text>
+              font-size="{{ fs }}" fill="#6b3f17" font-weight="700"
+              paint-order="stroke" stroke="#ffffff" stroke-width="{{ fs * 0.14 }}"
+              style="user-select: none">{{ label }}</text>
         {% endif %}
       </g>
       {% endif %}
@@ -1006,11 +1089,20 @@ tools:
                  fill="rgba(71, 85, 105, 0.30)" stroke="#475569" stroke-width="2"
                  stroke-dasharray="6 3" vector-effect="non-scaling-stroke" />
         {% endif %}
-        <text x="{{ g.centroidX }}" y="{{ g.centroidY }}"
+        {% set spot = compute.labelSpot([g]) %}
+        {% if spot %}
+        {% set ofitW = spot.room * 1.7 / (0.58 * (m.name | length)) %}
+        {% set ofitH = spot.room * 0.7 %}
+        {% set ofs = ofitW if ofitW < ofitH else ofitH %}
+        {% set ofloor = pointsToMm(9) %}
+        {% set ofs = ofs if ofs > ofloor else ofloor %}
+        <text x="{{ spot.x }}" y="{{ spot.y }}"
               text-anchor="middle" dominant-baseline="central"
               font-family="-apple-system, BlinkMacSystemFont, sans-serif"
-              font-size="{{ pointsToMm(9) }}" fill="#1e293b" font-weight="600"
+              font-size="{{ ofs }}" fill="#1e293b" font-weight="600"
+              paint-order="stroke" stroke="#ffffff" stroke-width="{{ ofs * 0.14 }}"
               style="user-select: none">{{ m.name }}</text>
+        {% endif %}
       </g>
       {% endif %}
 
