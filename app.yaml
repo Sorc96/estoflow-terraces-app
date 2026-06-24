@@ -351,22 +351,18 @@ lifecycle:
     body: |
       var pid = this.project.id;
 
-      // --- Ukázková data (idempotentní dle existence varianty) ------------
-      // Navázáno na geometrii nasazenou přes estoflow_seed_geometry.
+      // --- Ukázkové varianty kalkulátoru (idempotentní dle existence) -----
+      // Seedujeme JEN cenové/parametrické varianty (TerraceConfig) — ty na
+      // geometrii nezávisí. Zakreslenou plochu (TerraceSurface) a výřezy
+      // (TerraceObstacle) si uživatel kreslí sám příslušnými nástroji; kdyby
+      // se seedovaly s natvrdo zadanými geometry ID, v novém projektu ta
+      // geometrie neexistuje a vyskočilo by varování „bez geometrie“.
       var cfgRows = this.models.TerraceConfig.all.value;
       var hasCfg = false;
       for (var j = 0; j < cfgRows.length; j++) {
         if (cfgRows[j].project_id === pid) { hasCfg = true; break; }
       }
       if (!hasCfg) {
-        this.models.TerraceSurface.save({
-          project_id: pid, name: 'Terasa',
-          regionGeometryIds: ['GSwAi3y_5ZDB7TluJgnWL']
-        });
-        this.models.TerraceObstacle.save({
-          project_id: pid, name: 'Bazén', obstacleType: 'pool',
-          drivingGeometryId: '5ahT_NT-ksE1hR2VA5OCC'
-        });
         this.models.TerraceConfig.save({
           project_id: pid, name: 'Varianta A — WPC antracit',
           material: 'wpc', boardColor: 'antracit', layingDirection: 'podel',
